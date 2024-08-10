@@ -1,0 +1,37 @@
+name: Package a release of sitevars
+on:
+  push:
+    tags:
+      - "release-*"
+  workflow_dispatch:
+
+jobs:
+  run_tests:
+    uses: ./.github/workflows/test.yml
+
+  create_release:
+    runs-on: ubuntu-22.04
+    needs: run_tests
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade build pip setuptools wheel
+
+      - name: Build the release packages
+        run: python -m build
+
+      - name: Create a Github Release
+        run: gh release create ${{ github.ref }} --generate-notes dist/*

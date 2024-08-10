@@ -1,0 +1,73 @@
+[project]
+name = "django-sitevars"
+dynamic = ["version"]
+authors = [{ name = "Vince Veselosky", email = "vince@veselosky.com" }]
+description = "A Django app for managing site-wide variables."
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = ["django<5.3,>=4.2"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache License",
+    "Operating System :: OS Independent",
+]
+
+[project.optional-dependencies]
+dev = [
+    "django-debug-toolbar",
+    "django-environ",
+    "django-extensions",
+    "djlint",
+    "docutils>=0.19",
+    "pre-commit>=3.7.1",
+    "pytest",
+    "pytest-cov",
+    "pytest-django",
+]
+
+[project.urls]
+Homepage = "https://github.com/veselosky/django-sitevars"
+"Bug Tracker" = "https://github.com/veselosky/django-sitevars/issues"
+
+[build-system]
+# With setuptools-scm, package data files (e.g. templates) that are tracked by git will
+# be automatically detected and included. Without setuptools-scm, you would need to
+# specify a file pattern in MANIFEST.in to collect them.
+requires = ["setuptools>=66.1.1", "setuptools-scm>=7.0.5", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic.version]
+attr = "sitevars.__version__"
+
+[tool.djlint]
+close_void_tags = true
+format_css = true
+format_js = true
+indent = 2
+max_line_length = 119
+profile = "django"
+# https://www.djlint.com/docs/linter/#rules
+# D018 (Django) Internal links should use the {% url ... %} pattern.
+# H017 Void tags should be self closing.
+# H023 Do not use entity references.
+# H031 Consider adding meta keywords.
+# H035 Meta tags should be self closing.
+# T001 Variables should be wrapped in whitespace. Ex: {{ this }}
+# T002 Double quotes should be used in tags.
+ignore = "D018,H023,H031,T002"
+include = "H017,H035"
+
+[tool.djlint.css]
+indent_size = 2
+
+[tool.djlint.js]
+indent_size = 2
+
+[tool.ruff]
+line-length = 88
+indent-width = 4
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "DJ"]
+ignore = ["E501", "W505"]

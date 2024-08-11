@@ -37,7 +37,7 @@ jobs:
         run: gh release create ${{ github.ref }} --generate-notes dist/*
 
       - name: Upload the release artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: release-artifacts
           path: dist/
@@ -53,7 +53,7 @@ jobs:
       url: https://pypi.org/p/django-sitevars
     steps:
       - name: Download the release artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: release-artifacts
           path: dist/

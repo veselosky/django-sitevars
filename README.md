@@ -76,14 +76,22 @@ SITEVARS_USE_CACHE = False
 
 ## Development
 
-To set up the development environment, clone the repository and install the development
-dependencies:
+I recommend using [Astral's uv](https://docs.astral.sh/uv/) to manage your local
+development environment. This project uses [pre-commit](https://pre-commit.com/). After
+installing uv, clone this repository, then:
 
-Run the tests:
+```bash
+uv venv
+uv pip install -e .[dev]
+pre-commit install
+```
 
-## Contributing
+Tests are run using pytest and tox.
 
-Contributions are welcome! Please see the contributing guidelines for more information.
+```bash
+pytest test_project  # unit tests
+tox run  # full test matrix
+```
 
 ## License
 

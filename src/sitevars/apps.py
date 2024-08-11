@@ -2,7 +2,7 @@ from django.apps import AppConfig
 from django.conf import settings
 
 # Import the checks module to register system checks
-import sitevars.checks
+import sitevars.checks  # noqa: F401
 
 
 class SitevarsConfig(AppConfig):

@@ -35,3 +35,27 @@ jobs:
 
       - name: Create a Github Release
         run: gh release create ${{ github.ref }} --generate-notes dist/*
+
+      - name: Upload the release artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: release-artifacts
+          path: dist/
+
+  pypi_upload:
+    runs-on: ubuntu-22.04
+    needs: create_release
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: pypi
+      url: https://pypi.org/p/django-sitevars
+    steps:
+      - name: Download the release artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: release-artifacts
+          path: dist/
+      - name: Publish distribution 📦 to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

@@ -1,5 +1,4 @@
 from django import template
-from sitevars.models import SiteVar
 
 register = template.Library()
 

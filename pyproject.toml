@@ -1,15 +1,17 @@
 [project]
 name = "django-sitevars"
 dynamic = ["version"]
-authors = [{ name = "Vince Veselosky", email = "vince@veselosky.com" }]
+authors = [{ name = "Vince Veselosky", email = "vince@control-escape.com" }]
 description = "A Django app for managing site-wide variables."
 readme = "README.md"
 requires-python = ">=3.8"
 dependencies = ["django<5.3,>=4.2"]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: Apache License",
+    "License :: OSI Approved :: Apache Software License",
+    "Development Status :: 5 - Production/Stable",
     "Operating System :: OS Independent",
+    "Framework :: Django",
 ]
 
 [project.optional-dependencies]

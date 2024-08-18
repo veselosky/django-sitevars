@@ -49,12 +49,12 @@ repos:
         name: Check for ungenerated migrations
         language: system
         pass_filenames: false
-        entry: python manage.py makemigrations --no-input --dry-run --check
+        entry: .venv/bin/python manage.py makemigrations --no-input --dry-run --check
       - id: validate-templates
         name: Validate Django template syntax
         language: system
         pass_filenames: false
-        entry: python manage.py validate_templates
+        entry: .venv/bin/python manage.py validate_templates
 
 # sets up .pre-commit-ci.yaml to ensure pre-commit dependencies stay up to date
 ci:

@@ -1,8 +1,9 @@
 import typing as T
 
 from django.apps import apps
+from django.contrib.sites.models import Site
 from django.core.cache import cache
-from django.db import models
+from django.db import models, transaction
 from django.utils.translation import gettext_lazy as _
 
 
@@ -58,6 +59,18 @@ class SiteVarQueryset(models.QuerySet):
             return asa(default) if default is not None else default
         # Note explicitly NOT catching MultipleObjectsReturned, that's still an error
 
+    def clear_cache(self, site_id: T.Optional[int] = None):
+        """
+        Clear the cache for the given site_id, or all sites if no site_id is given.
+        """
+        if site_id is not None:
+            key = f"sitevars:{site_id}"
+            cache.delete(key)
+        else:
+            for site in Site.objects.all():
+                key = f"sitevars:{site.pk}"
+                cache.delete(key)
+
 
 class SiteVar(models.Model):
     """
@@ -88,6 +101,10 @@ class SiteVar(models.Model):
 
     def save(self, *args, **kwargs):
         # Clear the cache if it exists
-        key = f"sitevars:{self.site_id}"
-        cache.delete(key)
+        transaction.on_commit(lambda: self.objects.clear_cache(self.site.id))
         return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        # Clear the cache if it exists
+        transaction.on_commit(lambda: self.objects.clear_cache(self.site.id))
+        return super().delete(*args, **kwargs)

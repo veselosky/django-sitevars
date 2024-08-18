@@ -148,6 +148,50 @@ class SiteVarModelTest(TestCase):
         with self.assertRaises(ValueError):
             SiteVar.objects.get_value("testvar")
 
+    def test_sitevar_get_value_cache_hit(self):
+        """Test that get_value works with cache."""
+        site = Site.objects.get(pk=1)
+        with patch("sitevars.models.cache") as mock_cache:
+            mock_cache.get.return_value = {"testvar": "testvalue"}
+            self.assertEqual(site.vars.get_value("testvar"), "testvalue")
+            mock_cache.get.assert_called_once_with("sitevars:1", None)
+            mock_cache.set.assert_not_called()
+
+    def test_sitevar_clear_cache(self):
+        """Test that the cache is cleared correctly."""
+        site = Site.objects.get(pk=1)
+        SiteVar.objects.create(site=site, name="testvar", value="testvalue")
+        with patch("sitevars.models.cache") as mock_cache:
+            SiteVar.objects.clear_cache(site_id=1)
+            mock_cache.delete.assert_called_once_with("sitevars:1")
+
+    def test_sitevar_clear_cache_all_sites(self):
+        """Test that the cache is cleared for all sites."""
+        site1 = Site.objects.get(pk=1)
+        site2 = Site.objects.create(domain="example2.com", name="example2.com")
+        SiteVar.objects.create(site=site1, name="testvar", value="testvalue")
+        SiteVar.objects.create(site=site2, name="testvar", value="othervalue")
+        with patch("sitevars.models.cache") as mock_cache:
+            SiteVar.objects.clear_cache()
+            mock_cache.delete.assert_any_call("sitevars:1")
+            mock_cache.delete.assert_any_call("sitevars:2")
+
+    def test_delete_clears_cache(self):
+        """Test that the cache is cleared on commit when a sitevar is deleted."""
+        site = Site.objects.get(pk=1)
+        sitevar = SiteVar.objects.create(site=site, name="testvar", value="testvalue")
+        with patch("sitevars.models.transaction") as mock_xact:
+            sitevar.delete()
+            mock_xact.on_commit.assert_called()
+
+    def test_save_clears_cache(self):
+        """Test that the cache is cleared on commit when a sitevar is saved."""
+        site = Site.objects.get(pk=1)
+        sitevar = SiteVar.objects.create(site=site, name="testvar", value="testvalue")
+        with patch("sitevars.models.transaction") as mock_xact:
+            sitevar.save()
+            mock_xact.on_commit.assert_called()
+
 
 class SiteVarTemplateTagTest(TestCase):
     @classmethod

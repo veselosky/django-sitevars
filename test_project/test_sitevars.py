@@ -1,13 +1,14 @@
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, ANY
 
 from django.apps import apps
 from django.contrib.admin import site
 from django.contrib.auth.models import User
 from django.contrib.sites.models import Site
 from django.core.checks import Warning
+from django.db import transaction
 from django.db.utils import IntegrityError
 from django.template import Context, Template
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 
 from sitevars import checks
@@ -100,7 +101,9 @@ class ContextProcessorTest(TestCase):
         self.assertEqual(context, {"testvar": "testvalue"})
 
 
-class SiteVarModelTest(TestCase):
+class SiteVarModelTest(TransactionTestCase):
+    # Note: we use TransactionTestCase to manually manage transactions where TestCase
+    # would rollback the transaction before the cache is cleared.
     def test_sitevar_str(self):
         """Test the string representation of a sitevar."""
         site = Site.objects.get(pk=1)
@@ -127,9 +130,14 @@ class SiteVarModelTest(TestCase):
             SiteVar.objects.filter(site=site1).get_value("testvar"), "testvalue"
         )
 
+    def test_get_value_requires_queryset_filtered_by_site(self):
+        """Test that get_value raises an error when the queryset is not filtered by site."""
+        with self.assertRaises(ValueError):
+            SiteVar.objects.get_value("testvar")
+
     @override_settings(SITEVARS_USE_CACHE=False)
     def test_sitevar_get_value_no_cache(self):
-        """Test that get_value works without cache."""
+        """Test that get_value honors the use_cache app setting."""
         site = Site.objects.get(pk=1)
         with patch("sitevars.models.cache") as mock_cache:
             mock_cache.get.return_value = None
@@ -143,19 +151,47 @@ class SiteVarModelTest(TestCase):
                     None,
                 )
 
-    def test_get_value_requires_queryset_filtered_by_site(self):
-        """Test that get_value raises an error when the queryset is not filtered by site."""
-        with self.assertRaises(ValueError):
-            SiteVar.objects.get_value("testvar")
-
     def test_sitevar_get_value_cache_hit(self):
-        """Test that get_value works with cache."""
+        """Test that get_value uses the cache."""
         site = Site.objects.get(pk=1)
         with patch("sitevars.models.cache") as mock_cache:
             mock_cache.get.return_value = {"testvar": "testvalue"}
-            self.assertEqual(site.vars.get_value("testvar"), "testvalue")
+            with self.assertNumQueries(0):
+                self.assertEqual(site.vars.get_value("testvar"), "testvalue")
             mock_cache.get.assert_called_once_with("sitevars:1", None)
             mock_cache.set.assert_not_called()
+
+    def test_get_value_ignores_cache_inside_transaction(self):
+        """Test that the cache is ignored inside a transaction.
+
+        Because transactions can rollback (and there is no transaction.on_rollback we
+        can use to detect that), there's a potential for the cache to get out of sync
+        if we both write (which clears the cache) and then read (which repopulates the
+        cache) inside a transaction that is then rolled back. To avoid this, we ignore
+        the cache inside a transaction. This is an edge case that is unlikely (though
+        not impossible) to occur in production use, but always happens in TestCase
+        tests (which is why we use TransactionTestCase).
+        """
+        site = Site.objects.get(pk=1)
+        with transaction.atomic():
+            # Attempt to retrieve a sitevar. This would normally populate the cache.
+            with patch("sitevars.models.cache") as mock_cache:
+                val = site.vars.get_value("testvar", None)
+                mock_cache.get.assert_not_called()
+                mock_cache.set.assert_not_called()
+                self.assertIsNone(val)
+
+            # Cache should still be cleared on write
+            with patch("sitevars.models.transaction") as mock_xact:
+                SiteVar.objects.create(site=site, name="testvar", value="testvalue")
+                mock_xact.on_commit.assert_called_once_with(ANY)
+
+            # The cache should not be used here
+            with patch("sitevars.models.cache") as mock_cache:
+                with self.assertNumQueries(1):
+                    self.assertEqual(site.vars.get_value("testvar"), "testvalue")
+                mock_cache.get.assert_not_called()
+                mock_cache.set.assert_not_called()
 
     def test_sitevar_clear_cache(self):
         """Test that the cache is cleared correctly."""

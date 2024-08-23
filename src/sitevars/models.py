@@ -40,18 +40,22 @@ class SiteVarQueryset(models.QuerySet):
         if site_id is None:
             raise ValueError("get_value requires a queryset filtered by site")
 
-        if conf.use_cache:
+        # Check whether we are operating inside a transaction
+        in_transaction = not transaction.get_connection().get_autocommit()
+
+        # It's not safe to use the cache in a transaction, as it can get out of sync
+        if conf.use_cache and not in_transaction:
             # Construct the cache key and retrieve the cached value
             key = f"sitevars:{site_id}"
             allvars = cache.get(key, None)
             if allvars is None:
-                # Empty cache, populate the cache
+                # Cache is empty, populate the cache
                 allvars = {var.name: var.value for var in self.all()}
                 cache.set(key, allvars)
             val = allvars.get(name, default)
             return asa(val) if val is not None else val
 
-        # No cache, just query the DB
+        # Not using cache, just query the DB
         try:
             return asa(self.get(name=name).value)
         except self.model.DoesNotExist:
@@ -101,10 +105,10 @@ class SiteVar(models.Model):
 
     def save(self, *args, **kwargs):
         # Clear the cache if it exists
-        transaction.on_commit(lambda: self.objects.clear_cache(self.site.id))
+        transaction.on_commit(lambda: self.__class__.objects.clear_cache(self.site.id))
         return super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
         # Clear the cache if it exists
-        transaction.on_commit(lambda: self.objects.clear_cache(self.site.id))
+        transaction.on_commit(lambda: self.__class__.objects.clear_cache(self.site.id))
         return super().delete(*args, **kwargs)

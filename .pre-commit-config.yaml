@@ -43,6 +43,18 @@ repos:
       - id: djlint-reformat-django
       - id: djlint-django
 
+  - repo: https://github.com/abravalheri/validate-pyproject
+    rev: v0.19
+    hooks:
+      - id: validate-pyproject
+        # Optional extra validations from SchemaStore:
+        additional_dependencies: [
+          "validate-pyproject-schema-store[all]",
+          "tomli",
+          "packaging",
+          "trove-classifiers",
+        ]
+
   - repo: local
     hooks:
       - id: check-migrations

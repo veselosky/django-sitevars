@@ -97,7 +97,7 @@ upgrade path.
 BEFORE UPGRADING, backup your data and zero the sitevars migrations. THEN upgrade,
 migrate, and restore your backup.
 
-1. `python ./manage.py dumpdata sitevars.site > sitevars.json`
+1. `python ./manage.py dumpdata sitevars.sitevar > sitevars.json`
 2. `python ./manage.py migrate sitevars zero`
 3. `pip install "django-sitevars>=2.0"`
 4. `python ./manage.py migrate sitevars`

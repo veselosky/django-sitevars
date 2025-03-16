@@ -42,22 +42,11 @@ class PlaceholderSiteVarAdminForm(forms.ModelForm):
 
         # Check if we're using the PlaceholderSite model
         model = apps.get_app_config("sitevars").sites_model
-
         if model.lower() == "sitevars.placeholdersite":
             # Hide the site field and set default to PlaceholderSite with id=1
             self.fields["site"].widget = forms.HiddenInput()
+            # Should have been created at migration time, but JIC
             self.initial["site"] = PlaceholderSite.objects.get_or_create(id=1)[0]
-
-    def save(self, commit=True):
-        instance = super().save(commit=False)
-
-        # If sites framework is not installed, enforce PlaceholderSite
-        if "django.contrib.sites" not in settings.INSTALLED_APPS:
-            instance.site = PlaceholderSite.objects.get(id=1)
-
-        if commit:
-            instance.save()
-        return instance
 
 
 class PlaceholderSiteVarAdmin(admin.ModelAdmin):

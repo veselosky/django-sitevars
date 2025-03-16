@@ -1,9 +1,8 @@
 from unittest.mock import Mock, patch, ANY
 
 from django.apps import apps
-from django.contrib.admin import site
+from django.contrib.admin import site as adminsite
 from django.contrib.auth.models import User
-from django.contrib.sites.models import Site
 from django.core.checks import Warning
 from django.db import transaction
 from django.db.utils import IntegrityError
@@ -14,6 +13,8 @@ from django.urls import reverse
 from sitevars import checks
 from sitevars.context_processors import inject_sitevars
 from sitevars.models import SiteVar
+
+config = apps.get_app_config("sitevars")
 
 
 class AdminSmokeTest(TestCase):
@@ -34,7 +35,7 @@ class AdminSmokeTest(TestCase):
         app_label = "sitevars"
         app = apps.get_app_config(app_label)
         for model in app.get_models():
-            if not site.is_registered(model):
+            if not adminsite.is_registered(model):
                 continue
 
             with self.subTest(model=model):
@@ -106,19 +107,18 @@ class SiteVarModelTest(TransactionTestCase):
     # would rollback the transaction before the cache is cleared.
     def test_sitevar_str(self):
         """Test the string representation of a sitevar."""
-        site = Site.objects.get(pk=1)
-        sitevar = SiteVar.objects.create(site=site, name="testvar", value="testvalue")
+        sitevar = SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
         self.assertEqual(str(sitevar), "testvar=testvalue (example.com)")
 
     def test_sitevar_unique_together(self):
         """Test that sitevar names are unique per site."""
-        site = Site.objects.get(pk=1)
-        SiteVar.objects.create(site=site, name="testvar", value="testvalue")
+        SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
         with self.assertRaises(IntegrityError):
-            SiteVar.objects.create(site=site, name="testvar", value="othervalue")
+            SiteVar.objects.create(site_id=1, name="testvar", value="othervalue")
 
     def test_sitevar_unique_together_different_sites(self):
         """Test that sitevar names are not unique across different sites."""
+        Site = apps.get_model(*config.sites_model.split("."))
         site1 = Site.objects.get(pk=1)
         site2 = Site.objects.create(domain="example2.com", name="example2.com")
         SiteVar.objects.create(site=site1, name="testvar", value="testvalue")
@@ -138,10 +138,11 @@ class SiteVarModelTest(TransactionTestCase):
     @override_settings(SITEVARS_USE_CACHE=False)
     def test_sitevar_get_value_no_cache(self):
         """Test that get_value honors the use_cache app setting."""
+        Site = apps.get_model(*config.sites_model.split("."))
         site = Site.objects.get(pk=1)
         with patch("sitevars.models.cache") as mock_cache:
             mock_cache.get.return_value = None
-            SiteVar.objects.create(site=site, name="testvar", value="testvalue")
+            SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
             self.assertEqual(site.vars.get_value("testvar"), "testvalue")
             mock_cache.get.assert_not_called()
             mock_cache.set.assert_not_called()
@@ -153,6 +154,7 @@ class SiteVarModelTest(TransactionTestCase):
 
     def test_sitevar_get_value_cache_hit(self):
         """Test that get_value uses the cache."""
+        Site = apps.get_model(*config.sites_model.split("."))
         site = Site.objects.get(pk=1)
         with patch("sitevars.models.cache") as mock_cache:
             mock_cache.get.return_value = {"testvar": "testvalue"}
@@ -172,6 +174,7 @@ class SiteVarModelTest(TransactionTestCase):
         not impossible) to occur in production use, but always happens in TestCase
         tests (which is why we use TransactionTestCase).
         """
+        Site = apps.get_model(*config.sites_model.split("."))
         site = Site.objects.get(pk=1)
         with transaction.atomic():
             # Attempt to retrieve a sitevar. This would normally populate the cache.
@@ -195,14 +198,14 @@ class SiteVarModelTest(TransactionTestCase):
 
     def test_sitevar_clear_cache(self):
         """Test that the cache is cleared correctly."""
-        site = Site.objects.get(pk=1)
-        SiteVar.objects.create(site=site, name="testvar", value="testvalue")
+        SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
         with patch("sitevars.models.cache") as mock_cache:
             SiteVar.objects.clear_cache(site_id=1)
             mock_cache.delete.assert_called_once_with("sitevars:1")
 
     def test_sitevar_clear_cache_all_sites(self):
         """Test that the cache is cleared for all sites."""
+        Site = apps.get_model(*config.sites_model.split("."))
         site1 = Site.objects.get(pk=1)
         site2 = Site.objects.create(domain="example2.com", name="example2.com")
         SiteVar.objects.create(site=site1, name="testvar", value="testvalue")
@@ -214,16 +217,14 @@ class SiteVarModelTest(TransactionTestCase):
 
     def test_delete_clears_cache(self):
         """Test that the cache is cleared on commit when a sitevar is deleted."""
-        site = Site.objects.get(pk=1)
-        sitevar = SiteVar.objects.create(site=site, name="testvar", value="testvalue")
+        sitevar = SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
         with patch("sitevars.models.transaction") as mock_xact:
             sitevar.delete()
             mock_xact.on_commit.assert_called()
 
     def test_save_clears_cache(self):
         """Test that the cache is cleared on commit when a sitevar is saved."""
-        site = Site.objects.get(pk=1)
-        sitevar = SiteVar.objects.create(site=site, name="testvar", value="testvalue")
+        sitevar = SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
         with patch("sitevars.models.transaction") as mock_xact:
             sitevar.save()
             mock_xact.on_commit.assert_called()
@@ -232,6 +233,7 @@ class SiteVarModelTest(TransactionTestCase):
 class SiteVarTemplateTagTest(TestCase):
     @classmethod
     def setUpTestData(cls) -> None:
+        Site = apps.get_model(*config.sites_model.split("."))
         cls.site = Site.objects.get(pk=1)
         cls.sitevar = SiteVar.objects.create(
             site=cls.site, name="testvar", value="testvalue"

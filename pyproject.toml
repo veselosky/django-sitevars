@@ -5,7 +5,7 @@ authors = [{ name = "Vince Veselosky", email = "vince@control-escape.com" }]
 description = "A Django app for managing site-wide variables."
 readme = "README.md"
 requires-python = ">=3.8"
-dependencies = ["django<5.3,>=4.2"]
+dependencies = ["django>=4.2"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: Apache Software License",
@@ -21,7 +21,7 @@ dev = [
     "django-extensions",
     "djlint",
     "docutils>=0.19",
-    "pre-commit>=3.7.1",
+    "pre-commit>=3.5.0",
     "pytest",
     "pytest-cov",
     "pytest-django",
@@ -73,3 +73,16 @@ target-version = "py38"
 [tool.ruff.lint]
 select = ["E", "F", "B", "DJ"]
 ignore = ["E501", "W505"]
+
+[dependency-groups]
+dev = [
+    "django-debug-toolbar>=4.4.6",
+    "django-environ>=0.11.2",
+    "django-extensions>=3.2.3",
+    "djlint>=1.35.2",
+    "docutils>=0.20.1",
+    "pre-commit>=3.5.0",
+    "pytest>=8.3.5",
+    "pytest-cov>=5.0.0",
+    "pytest-django>=4.10.0",
+]

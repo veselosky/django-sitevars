@@ -1,10 +1,11 @@
 import typing as T
 
 from django.apps import apps
-from django.contrib.sites.models import Site
 from django.core.cache import cache
 from django.db import models, transaction
 from django.utils.translation import gettext_lazy as _
+
+config = apps.get_app_config("sitevars")
 
 
 class SiteVarQueryset(models.QuerySet):
@@ -67,6 +68,7 @@ class SiteVarQueryset(models.QuerySet):
         """
         Clear the cache for the given site_id, or all sites if no site_id is given.
         """
+        Site = apps.get_model(*config.sites_model.split("."))
         if site_id is not None:
             key = f"sitevars:{site_id}"
             cache.delete(key)
@@ -84,7 +86,7 @@ class SiteVar(models.Model):
     """
 
     site = models.ForeignKey(
-        "sites.Site",
+        config.sites_model,
         verbose_name=_("site"),
         on_delete=models.CASCADE,
         related_name="vars",
@@ -112,3 +114,15 @@ class SiteVar(models.Model):
         # Clear the cache if it exists
         transaction.on_commit(lambda: self.__class__.objects.clear_cache(self.site.id))
         return super().delete(*args, **kwargs)
+
+
+class PlaceholderSite(models.Model):
+    """
+    A placeholder site model to use when the Django's Site model is not available.
+    """
+
+    domain = models.CharField(_("domain name"), max_length=100)
+    name = models.CharField(_("display name"), max_length=50)
+
+    def __str__(self):
+        return "Placeholder Site"

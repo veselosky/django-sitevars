@@ -13,14 +13,16 @@ To install the package, use pip:
 pip install django-sitevars
 ```
 
-Add sitevars to your INSTALLED_APPS in your Django settings. Optionally, you can
-configure the provided context processor to add your site variables into every template
-context.
+Add sitevars to INSTALLED_APPS in your Django settings. Optionally, you can configure
+the provided context processor to add your site variables into every template context.
+
+Note: If you use the `django.contrib.sites` app, `sitevars` must be added to
+INSTALLED_APPS **AFTER** `django.contrib.sites` in order to augment the sites admin.
 
 ```python
 INSTALLED_APPS = [
     ...
-    'django.contrib.sites',  # required
+    'django.contrib.sites',  # optional, but if present, must come first
     'sitevars',  # Must come after contrib.sites for admin to work
     ...
 ]
@@ -38,6 +40,17 @@ TEMPLATES=[
     }
 ]
 ```
+
+If you use a sites framework other than `django.contrib.sites` (e.g. Wagtail), you can
+associate the site variables with your framework's sites by setting SITES_MODEL in your
+`settings.py`:
+
+```python
+SITES_MODEL = "wagtail.site"
+```
+
+If you don't use a sites framework because your project only serves one site, no
+worries! `django-sitevars` will work fine for a single site.
 
 ## Usage
 
@@ -74,6 +87,22 @@ the cache for some reason, you can disable it in your settings file.
 SITEVARS_USE_CACHE = False
 ```
 
+## WARNING: Upgrading from 1.x
+
+If you're upgrading from 1.x to 2.x, you will need to take some extra steps. When we
+added support for pluggable Site models, we had to change the migrations in a way that
+was not backwards compatible. The SiteVar model is the same, though, so there is an
+upgrade path.
+
+BEFORE UPGRADING, backup your data and zero the sitevars migrations. THEN upgrade,
+migrate, and restore your backup.
+
+1. `python ./manage.py dumpdata sitevars.site > sitevars.json`
+2. `python ./manage.py migrate sitevars zero`
+3. `pip install "django-sitevars>=2.0"`
+4. `python ./manage.py migrate sitevars`
+5. `python ./manage.py loaddata sitevars.json`
+
 ## Development
 
 I recommend using [Astral's uv](https://docs.astral.sh/uv/) to manage your local
@@ -81,17 +110,28 @@ development environment. This project uses [pre-commit](https://pre-commit.com/)
 installing uv, clone this repository, then:
 
 ```bash
-uv venv
-uv pip install -e .[dev]
-pre-commit install
+uv sync
+uv run pre-commit install
 ```
 
-Tests are run using pytest and tox.
+Tests are run using a test script and/or tox.
 
 ```bash
-pytest test_project  # unit tests
+uv run python -Wall runtests.py  # unit tests
 tox run  # full test matrix
+tox p  # Run full test matrix in parallel (much faster)
 ```
+
+Note that the `tests` directory contains multiple settings files for testing the various
+supported project configurations. The test script will ask which settings file to use,
+or you can supply one on the command line.
+
+`uv run python -Wall runtests.py <contrib_sites | alt_sites | no_sites>`
+
+If you need to generate migrations for the FakeSite model in the tests app for some
+reason, be sure to use the `alt_sites` settings.
+
+`DJANGO_SETTINGS_MODULE=tests.alt_sites uv run python ./manage.py makemigrations`
 
 ## License
 

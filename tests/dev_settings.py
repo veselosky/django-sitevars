@@ -14,14 +14,14 @@ STATIC_ROOT = VAR_DIR.joinpath("static")
 STATIC_ROOT.mkdir(exist_ok=True, parents=True)
 
 SITE_ID = 1
-ROOT_URLCONF = "test_project.urls"
+ROOT_URLCONF = "tests.project"
 MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "django.contrib.sites.middleware.CurrentSiteMiddleware",
+    # "django.contrib.sites.middleware.CurrentSiteMiddleware",
 ]
 DATABASES = {
     "default": {
@@ -36,7 +36,7 @@ INSTALLED_APPS = [
     "django.contrib.auth",
     "django.contrib.admin",
     "django.contrib.staticfiles",
-    "django.contrib.sites",
+    # "django.contrib.sites",
     "sitevars",
 ]
 LOGGING = {
@@ -74,4 +74,4 @@ TEMPLATES = [
     }
 ]
 USE_TZ = True
-WSGI_APPLICATION = "test_project.wsgi.application"
+WSGI_APPLICATION = "tests.project.application"

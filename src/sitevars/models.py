@@ -121,8 +121,8 @@ class PlaceholderSite(models.Model):
     A placeholder site model to use when the Django's Site model is not available.
     """
 
-    domain = models.CharField(_("domain name"), max_length=100)
-    name = models.CharField(_("display name"), max_length=50)
+    domain = models.CharField(_("domain name"), max_length=100, blank=True)
+    name = models.CharField(_("display name"), max_length=50, blank=True)
 
     def __str__(self):
         return "Placeholder Site"

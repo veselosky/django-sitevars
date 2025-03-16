@@ -12,8 +12,8 @@ class Migration(migrations.Migration):
             name='PlaceholderSite',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('domain', models.CharField(max_length=100, verbose_name='domain name')),
-                ('name', models.CharField(max_length=50, verbose_name='display name')),
+                ('domain', models.CharField(max_length=100, verbose_name='domain name', blank=True)),
+                ('name', models.CharField(max_length=50, verbose_name='display name', blank=True)),
             ],
         ),
     ]

@@ -1,13 +1,11 @@
 # CHANGELOG
 
-## 2.0.0 [BREAKING CHANGES]
+## 1.1.0
 
-- BREAKING CHANGE: Added support for a swappable sites model so you can use it without
-  `django.contrib.sites`. Unfortunately, this required modifying the database migrations
-  in a way that was not backwards compatible. If upgrading from 1.x, follow the
-  instructions in the README.
-- Values are now editable in the Admin Change List page.
-- Add Django 5.2 (beta) and Python 3.13 to test matrix.
+- ADDED: Support for a swappable site model so you can use it without
+  `django.contrib.sites`.
+- CHANGED: Values are now editable in the Admin Change List page.
+- CHANGED: Added Django 5.2 (rc1) and Python 3.13 to test matrix.
 
 ## 1.0.2
 

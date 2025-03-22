@@ -19,6 +19,9 @@ def create_default_site(
     """
     Create the default singleton PlaceholderSite object.
     """
+    # If the model doesn't exist, this is a legacy installation using
+    # django.contrib.sites upgraded from 1.x. Nothing to do, we won't need the
+    # PlaceholderSite.
     try:
         Site = apps.get_model("sitevars", "PlaceholderSite")
     except LookupError:
@@ -27,6 +30,7 @@ def create_default_site(
     if not router.allow_migrate_model(using, Site):
         return
 
+    # If the table is empty, create the default site
     if not Site.objects.using(using).exists():
         Site(pk=1, domain="example.com", name="example.com").save(using=using)
 
@@ -40,11 +44,11 @@ class SitevarsConfig(AppConfig):
         return getattr(settings, "SITEVARS_USE_CACHE", True)
 
     @property
-    def sites_model(self):
+    def site_model(self):
         """
         Return the name of the Site model to use for foreign keys.
         """
-        name = getattr(settings, "SITES_MODEL", None)
+        name = getattr(settings, "SITE_MODEL", None)
         if not name and "django.contrib.sites" in settings.INSTALLED_APPS:
             name = "sites.Site"
         if not name:

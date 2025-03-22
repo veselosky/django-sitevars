@@ -41,7 +41,7 @@ class PlaceholderSiteVarAdminForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         # Check if we're using the PlaceholderSite model
-        model = apps.get_app_config("sitevars").sites_model
+        model = apps.get_app_config("sitevars").site_model
         if model.lower() == "sitevars.placeholdersite":
             # Hide the site field and set default to PlaceholderSite with id=1
             self.fields["site"].widget = forms.HiddenInput()
@@ -75,7 +75,7 @@ if "django.contrib.sites" in settings.INSTALLED_APPS:
         )
         pass
 
-elif apps.get_app_config("sitevars").sites_model.lower() == "sitevars.placeholdersite":
+elif apps.get_app_config("sitevars").site_model.lower() == "sitevars.placeholdersite":
     # If we're using the PlaceholderSite model, register the PlaceholderSiteVarAdmin
     admin.site.register(SiteVar, PlaceholderSiteVarAdmin)
 

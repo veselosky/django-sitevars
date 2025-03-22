@@ -68,7 +68,7 @@ class SiteVarQueryset(models.QuerySet):
         """
         Clear the cache for the given site_id, or all sites if no site_id is given.
         """
-        Site = apps.get_model(*config.sites_model.split("."))
+        Site = apps.get_model(*config.site_model.split("."))
         if site_id is not None:
             key = f"sitevars:{site_id}"
             cache.delete(key)
@@ -86,7 +86,7 @@ class SiteVar(models.Model):
     """
 
     site = models.ForeignKey(
-        config.sites_model,
+        config.site_model,
         verbose_name=_("site"),
         on_delete=models.CASCADE,
         related_name="vars",

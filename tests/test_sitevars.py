@@ -118,7 +118,7 @@ class SiteVarModelTest(TransactionTestCase):
 
     def test_sitevar_unique_together_different_sites(self):
         """Test that sitevar names are not unique across different sites."""
-        Site = apps.get_model(*config.sites_model.split("."))
+        Site = apps.get_model(*config.site_model.split("."))
         site1 = Site.objects.get(pk=1)
         site2 = Site.objects.create(domain="example2.com", name="example2.com")
         SiteVar.objects.create(site=site1, name="testvar", value="testvalue")
@@ -138,7 +138,7 @@ class SiteVarModelTest(TransactionTestCase):
     @override_settings(SITEVARS_USE_CACHE=False)
     def test_sitevar_get_value_no_cache(self):
         """Test that get_value honors the use_cache app setting."""
-        Site = apps.get_model(*config.sites_model.split("."))
+        Site = apps.get_model(*config.site_model.split("."))
         site = Site.objects.get(pk=1)
         with patch("sitevars.models.cache") as mock_cache:
             mock_cache.get.return_value = None
@@ -154,7 +154,7 @@ class SiteVarModelTest(TransactionTestCase):
 
     def test_sitevar_get_value_cache_hit(self):
         """Test that get_value uses the cache."""
-        Site = apps.get_model(*config.sites_model.split("."))
+        Site = apps.get_model(*config.site_model.split("."))
         site = Site.objects.get(pk=1)
         with patch("sitevars.models.cache") as mock_cache:
             mock_cache.get.return_value = {"testvar": "testvalue"}
@@ -174,7 +174,7 @@ class SiteVarModelTest(TransactionTestCase):
         not impossible) to occur in production use, but always happens in TestCase
         tests (which is why we use TransactionTestCase).
         """
-        Site = apps.get_model(*config.sites_model.split("."))
+        Site = apps.get_model(*config.site_model.split("."))
         site = Site.objects.get(pk=1)
         with transaction.atomic():
             # Attempt to retrieve a sitevar. This would normally populate the cache.
@@ -205,7 +205,7 @@ class SiteVarModelTest(TransactionTestCase):
 
     def test_sitevar_clear_cache_all_sites(self):
         """Test that the cache is cleared for all sites."""
-        Site = apps.get_model(*config.sites_model.split("."))
+        Site = apps.get_model(*config.site_model.split("."))
         site1 = Site.objects.get(pk=1)
         site2 = Site.objects.create(domain="example2.com", name="example2.com")
         SiteVar.objects.create(site=site1, name="testvar", value="testvalue")
@@ -233,7 +233,7 @@ class SiteVarModelTest(TransactionTestCase):
 class SiteVarTemplateTagTest(TestCase):
     @classmethod
     def setUpTestData(cls) -> None:
-        Site = apps.get_model(*config.sites_model.split("."))
+        Site = apps.get_model(*config.site_model.split("."))
         cls.site = Site.objects.get(pk=1)
         cls.sitevar = SiteVar.objects.create(
             site=cls.site, name="testvar", value="testvalue"

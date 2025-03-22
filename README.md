@@ -42,12 +42,20 @@ TEMPLATES=[
 ```
 
 If you use a sites framework other than `django.contrib.sites` (e.g. Wagtail), you can
-associate the site variables with your framework's sites by setting SITES_MODEL in your
+associate the site variables with your framework's sites by setting SITE_MODEL in your
 `settings.py`:
 
 ```python
-SITES_MODEL = "wagtail.site"
+SITE_MODEL = "wagtail.site"
 ```
+
+WARNING: As with a custom AUTH_USER_MODEL, if you're going to use a custom SITE_MODEL in
+your project, be sure to set SITE_MODEL **BEFORE** running initial migrations for the
+`sitevars` app. Otherwise, you will have a mess to untangle.
+
+NOTE: Apps that ship with Django do not support custom SITE_MODEL, so don't try to use a
+custom SITE_MODEL with `django.contrib.flatpages` or `django.contrib.redirects`, or any
+third party app that depends on the Django sites framework.
 
 If you don't use a sites framework because your project only serves one site, no
 worries! `django-sitevars` will work fine for a single site.
@@ -86,22 +94,6 @@ the cache for some reason, you can disable it in your settings file.
 ```python
 SITEVARS_USE_CACHE = False
 ```
-
-## WARNING: Upgrading from 1.x
-
-If you're upgrading from 1.x to 2.x, you will need to take some extra steps. When we
-added support for pluggable Site models, we had to change the migrations in a way that
-was not backwards compatible. The SiteVar model is the same, though, so there is an
-upgrade path.
-
-BEFORE UPGRADING, backup your data and zero the sitevars migrations. THEN upgrade,
-migrate, and restore your backup.
-
-1. `python ./manage.py dumpdata sitevars.sitevar > sitevars.json`
-2. `python ./manage.py migrate sitevars zero`
-3. `pip install "django-sitevars>=2.0"`
-4. `python ./manage.py migrate sitevars`
-5. `python ./manage.py loaddata sitevars.json`
 
 ## Development
 

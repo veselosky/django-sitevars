@@ -1,6 +1,6 @@
 from pathlib import Path
 
-SITES_MODEL = "tests.FakeSite"
+SITE_MODEL = "tests.FakeSite"
 BASE_DIR = Path(__file__).resolve().parent
 # VAR_DIR = BASE_DIR.joinpath("var")
 # VAR_DIR.mkdir(exist_ok=True, parents=True)

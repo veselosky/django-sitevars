@@ -73,8 +73,8 @@ class SiteVarQueryset(models.QuerySet):
             key = f"sitevars:{site_id}"
             cache.delete(key)
         else:
-            for site in Site.objects.all():
-                key = f"sitevars:{site.pk}"
+            for site_id in Site.objects.values_list("pk", flat=True):
+                key = f"sitevars:{site_id}"
                 cache.delete(key)
 
 

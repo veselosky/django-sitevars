@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## 1.1.0
+
+- ADDED: Support for a swappable site model so you can use it without
+  `django.contrib.sites`.
+- CHANGED: Values are now editable in the Admin Change List page.
+- CHANGED: Added Django 5.2 (rc1) and Python 3.13 to test matrix.
+
 ## 1.0.2
 
 - Fix crashing bug with `transaction.on_commit` calls.

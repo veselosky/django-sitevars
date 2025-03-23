@@ -1,5 +1,4 @@
 from django.apps import apps
-from django.contrib.sites.shortcuts import get_current_site
 from django.core.cache import cache
 
 
@@ -9,18 +8,16 @@ def inject_sitevars(request):
     conf = apps.get_app_config("sitevars")
     SiteVar = conf.get_model("SiteVar")
 
-    if hasattr(request, "site"):
-        # If site middleware is installed, we save a query
-        site = request.site
-    else:
-        site = get_current_site(request)
-    qs = SiteVar.objects.filter(site_id=site.id)
+    # Get the site_id, or raise ImproperlConfigured
+    site_id = conf.get_site_id_for_request(request)
+
+    qs = SiteVar.objects.filter(site_id=site_id)
 
     if not conf.use_cache:
         return {var.name: var.value for var in qs}
 
     # Construct the cache key and retrieve the cached value
-    key = f"sitevars:{site.id}"
+    key = f"sitevars:{site_id}"
     allvars = cache.get(key, None)
     if allvars is None:
         # Empty cache, populate the cache

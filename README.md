@@ -13,8 +13,16 @@ To install the package, use pip:
 pip install django-sitevars
 ```
 
-Add sitevars to INSTALLED_APPS in your Django settings. Optionally, you can configure
-the provided context processor to add your site variables into every template context.
+Then, configure and use it according to the usage scenarios below.
+
+## Using with `django.contrib.sites`
+
+If you have `django.contrib.sites` in your installed apps, SiteVars will be associated
+with the `sites.Site` model.
+
+Add `sitevars` to `INSTALLED_APPS` in your Django settings. Optionally, you can
+configure the provided context processor to add your site variables into every template
+context.
 
 Note: If you use the `django.contrib.sites` app, `sitevars` must be added to
 INSTALLED_APPS **AFTER** `django.contrib.sites` in order to augment the sites admin.
@@ -22,7 +30,7 @@ INSTALLED_APPS **AFTER** `django.contrib.sites` in order to augment the sites ad
 ```python
 INSTALLED_APPS = [
     ...
-    'django.contrib.sites',  # optional, but if present, must come first
+    'django.contrib.sites',  # must come first
     'sitevars',  # Must come after contrib.sites for admin to work
     ...
 ]
@@ -33,21 +41,42 @@ TEMPLATES=[
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
-                "django.template.context_processors.request",  # required
-                "sitevars.context_processors.inject_sitevars",  # optional
+                "django.template.context_processors.request",  # strongly advised
+                "sitevars.context_processors.inject_sitevars",  # optional, but useful
             ]
         },
     }
 ]
+# highly recommended to add the current site middleware
+# MIDDLEWARE.append("django.contrib.sites.middleware.CurrentSiteMiddleware")
 ```
 
-If you use a sites framework other than `django.contrib.sites` (e.g. Wagtail), you can
-associate the site variables with your framework's sites by setting SITE_MODEL in your
-`settings.py`:
+In your views, you can access site variables via the accessor on the site object. Use
+the `get_value` method to retrieve the value by name. You can also ask `get_value` to
+transform the string value returned from the database by passing a function in the `asa`
+argument.
 
 ```python
-SITE_MODEL = "wagtail.site"
+import json
+from django.contrib.sites.shortcuts import get_current_site
+
+def my_view(request):
+  site = get_current_site(request)
+  name = site.vars.get_value("name", default="world")
+  # Note that default must be a string, because it will be passed to your asa function!
+  number = site.vars.get_value("number", default="0", asa=int)
+  options_dict = site.vars.get_value("options", default="{}", asa=json.loads)
+  ...
 ```
+
+## Using with an alternate Site model
+
+If you use a Site model other than the `django.contrib.sites` model, you will need to
+add some settings to tell `sitevars` what model to target in its foreign keys, and how
+to get the correct Site for the current request.
+
+The `SITE_MODEL` setting should be a string identifying the model in the usual Django
+fashion, "appname.Model".
 
 WARNING: As with a custom AUTH_USER_MODEL, if you're going to use a custom SITE_MODEL in
 your project, be sure to set SITE_MODEL **BEFORE** running initial migrations for the
@@ -57,10 +86,57 @@ NOTE: Apps that ship with Django do not support custom SITE_MODEL, so don't try 
 custom SITE_MODEL with `django.contrib.flatpages` or `django.contrib.redirects`, or any
 third party app that depends on the Django sites framework.
 
-If you don't use a sites framework because your project only serves one site, no
-worries! `django-sitevars` will work fine for a single site.
+### Determining the current site
 
-## Usage
+The recommended way to make `sitevars` aware of the current site is to use a Current
+Site Middleware that sets `request.site` as
+`django.contrib.sites.middleware.CurrentSiteMiddleware` does. `sitevars` will always use
+this when available.
+
+Without a middleware, you will need to tell `sitevars` how to determine the current
+site.
+
+If the site model has a class method that will return the correct site given the
+request, set `CURRENT_SITE_METHOD="method_name"`.
+
+If there's no such method on the class, then you must provide an importable function
+that takes a request and returns a site object:
+`CURRENT_SITE_FUNCTION="myapp.utils.get_current_site"`.
+
+In the absence of a CURRENT_SITE_METHOD or CURRENT_SITE_FUNCTION, `sitevars` will fall
+back to trying `Site.objects.get_current(request)` (which is how it works for Django's
+sites framework.)
+
+For example, the following settings should work for a Wagtail project.
+
+```python
+SITE_MODEL = "wagtailcore.Site"
+CURRENT_SITE_METHOD = "find_for_request"
+# sitevars will import wagtailcore.Site and call Site.find_for_request(request)
+```
+
+For a home-grown custom site model, something like this should work:
+
+```python
+# In settings.py
+SITE_MODEL = "my_sites_app.Site"
+CURRENT_SITE_FUNCTION = "my_sites_app.utils.site_for_request"
+
+# In my_sites_app.utils.py
+def site_for_request(request):
+    # Your own matching logic here
+    return Site.objects.matching_domain(request.get_host())
+```
+
+## Using without a Site model
+
+If you don't use a sites framework because your project only serves one site, no
+worries! `django-sitevars` will work fine for a single site. In this case, `sitevars`
+creates a placeholder site object for its foreign key, but you don't need to know about
+it. Just call `SiteVar.objects.get_value("name")` and `sitevars` will do the right
+thing.
+
+## Using in templates
 
 In templates, load the `sitevars` library to use the included template tag.
 
@@ -68,24 +144,17 @@ In templates, load the `sitevars` library to use the included template tag.
 {% load sitevars %} Hello, {% sitevar "name" default="world" %}!
 ```
 
-Or, if you are using the `inject_sitevars` context processor, the variable will already
-be in the template context.
+Or, if you are using the `sitevars.contet_processors.inject_sitevars` context processor,
+the variable will already be in the template context.
 
 ```html
 {% load sitevars %} Hello, {{ name|default:"world" }}!
 ```
 
-In your views, you can access site variables via the accessor on the site object. Use
-the `get_value` method to retrieve the value by name.
+NOTE: It's strongly advised to use the `django.template.context_processors.request`
+context processor to ensure `sitevars` can look up the current site.
 
-```python
-from django.contrib.sites.shortcuts import get_current_site
-
-def my_view(request):
-  site = get_current_site(request)
-  name = site.vars.get_value("name", default="world")
-  ...
-```
+## Disabling the Cache
 
 To reduce load on the database, `sitevars` maintains a cache of all variables per site
 (using the default cache configured in your Django project). If you prefer not to use

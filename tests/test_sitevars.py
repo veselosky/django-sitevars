@@ -1,3 +1,4 @@
+from unittest import skipIf
 from unittest.mock import Mock, patch, ANY
 
 from django.apps import apps
@@ -7,7 +8,7 @@ from django.core.checks import Warning
 from django.db import transaction
 from django.db.utils import IntegrityError
 from django.template import Context, Template
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings, RequestFactory
 from django.urls import reverse
 
 from sitevars import checks
@@ -49,15 +50,87 @@ class AdminSmokeTest(TestCase):
                 self.assertEqual(resp_add.status_code, 200)
 
 
+class AppConfigTest(TestCase):
+    @override_settings(SITEVARS_USE_CACHE=False)
+    def test_use_cache_false(self):
+        """Test the use_cache property when SITEVARS_USE_CACHE is False."""
+        self.assertFalse(config.use_cache)
+
+    def test_use_cache_default(self):
+        """Test the use_cache property."""
+        self.assertTrue(config.use_cache)
+
+    @skipIf(
+        config.site_model != "sitevars.PlaceholderSite",
+        "Test only applies to PlaceholderSite model.",
+    )
+    def test_get_site_id_for_request__placeholder_site(self):
+        """Test the get_site_id_for_request method."""
+        request = RequestFactory().get("/")
+        self.assertEqual(config.get_site_id_for_request(request), 1)
+
+    @skipIf(
+        config.site_model == "sitevars.PlaceholderSite",
+        "Not used with PlaceholderSite model.",
+    )
+    def test_get_site_id_for_request__site_middleware(self):
+        """Test the get_site_id_for_request when request.site is valid."""
+        request = RequestFactory().get("/")
+        request.site = Mock()
+        request.site.id = 7
+        self.assertEqual(config.get_site_id_for_request(request), 7)
+
+    @skipIf(
+        config.site_model != "tests.FakeSite",
+        "Only applies to custom SITE_MODEL.",
+    )
+    def test_get_site_id_for_request__current_site_function(self):
+        """Test the get_site_id_for_request when CURRENT_SITE_FUNCTION is set."""
+        with override_settings(CURRENT_SITE_FUNCTION="tests.models.get_current_site"):
+            request = RequestFactory().get("/")
+            with self.assertLogs("sitevars.testing", "INFO") as cm:
+                self.assertEqual(config.get_site_id_for_request(request), 1)
+            self.assertIn("INFO:sitevars.testing:get_current_site() called", cm.output)
+
+    @skipIf(
+        config.site_model != "tests.FakeSite",
+        "Only applies to custom SITE_MODEL.",
+    )
+    def test_get_site_id_for_request__current_site_method(self):
+        """Test the get_site_id_for_request when CURRENT_SITE_METHOD is set."""
+        with override_settings(CURRENT_SITE_METHOD="get_current"):
+            request = RequestFactory().get("/")
+            with self.assertLogs("sitevars.testing", "INFO") as cm:
+                self.assertEqual(config.get_site_id_for_request(request), 1)
+            self.assertIn(
+                "INFO:sitevars.testing:FakeSite.get_current() called", cm.output
+            )
+
+    @skipIf(
+        config.site_model != "tests.FakeSite",
+        "Only applies to contrib.sites or compatible.",
+    )
+    def test_get_site_id_for_request__fallback_to_get_current(self):
+        """Test that it falls back to Site.objects.get_current"""
+        request = RequestFactory().get("/")
+        with self.assertLogs("sitevars.testing", "INFO") as cm:
+            self.assertEqual(config.get_site_id_for_request(request), 1)
+        self.assertEqual(
+            cm.output, ["INFO:sitevars.testing:FakeSiteManager.get_current() called"]
+        )
+
+
 class ContextProcessorTest(TestCase):
-    def test_context_processor_returns_dict(self):
-        """Test the context processor."""
+    def test_context_processor_returns_dict_with_one_query(self):
+        """Test the context processor "happy path"."""
         # Create a sitevar
         SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
 
         # Test the context processor returns the sitevar and populates the cache
         with patch("sitevars.context_processors.cache") as mock_cache:
-            request = Mock()
+            request = RequestFactory().get("/")
+            # Simulate site middleware
+            request.site = Mock()
             request.site.id = 1
             mock_cache.get.return_value = None
             with self.assertNumQueries(1):
@@ -68,13 +141,29 @@ class ContextProcessorTest(TestCase):
                 "sitevars:1", {"testvar": "testvalue"}
             )
 
+    def test_context_processor_returns_dict__without_site_middleware(self):
+        """Test the context processor when sites middleware not installed."""
+        # Create a sitevar
+        SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
+
+        # Test the context processor returns the sitevar and populates the cache
+        with patch("sitevars.context_processors.cache") as mock_cache:
+            request = RequestFactory().get("/")
+            assert not hasattr(request, "site")
+            mock_cache.get.return_value = None
+
+            context = inject_sitevars(request)
+
+            self.assertEqual(context, {"testvar": "testvalue"})
+
     def test_cache_used(self):
         """Test that the context processor uses the cache."""
         # Create a sitevar
         SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
 
         with patch("sitevars.context_processors.cache") as mock_cache:
-            request = Mock()
+            request = RequestFactory().get("/")
+            request.site = Mock()
             request.site.id = 1
             mock_cache.get.return_value = {"testvar": "testvalue"}
             with self.assertNumQueries(0):
@@ -93,7 +182,8 @@ class ContextProcessorTest(TestCase):
         SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
 
         with patch("sitevars.context_processors.cache") as mock_cache:
-            request = Mock()
+            request = RequestFactory().get("/")
+            request.site = Mock()
             request.site.id = 1
             context = inject_sitevars(request)
             self.assertEqual(context, {"testvar": "testvalue"})
@@ -116,6 +206,10 @@ class SiteVarModelTest(TransactionTestCase):
         with self.assertRaises(IntegrityError):
             SiteVar.objects.create(site_id=1, name="testvar", value="othervalue")
 
+    @skipIf(
+        config.site_model.lower() == "sitevars.placeholdersite",
+        "Test does not apply to when using PlaceholderSite model.",
+    )
     def test_sitevar_unique_together_different_sites(self):
         """Test that sitevar names are not unique across different sites."""
         Site = apps.get_model(*config.site_model.split("."))
@@ -130,10 +224,24 @@ class SiteVarModelTest(TransactionTestCase):
             SiteVar.objects.filter(site=site1).get_value("testvar"), "testvalue"
         )
 
+    @skipIf(
+        config.site_model.lower() == "sitevars.placeholdersite",
+        "Test does not apply to when using PlaceholderSite model.",
+    )
     def test_get_value_requires_queryset_filtered_by_site(self):
         """Test that get_value raises an error when the queryset is not filtered by site."""
         with self.assertRaises(ValueError):
             SiteVar.objects.get_value("testvar")
+
+    @skipIf(
+        config.site_model.lower() != "sitevars.placeholdersite",
+        "Test only applies to PlaceholderSite model.",
+    )
+    def test_get_value_placeholder_site(self):
+        """Test that get_value automatically filters queries when using the placeholder site."""
+        SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
+        with self.assertNumQueries(1):
+            self.assertEqual(SiteVar.objects.get_value("testvar"), "testvalue")
 
     @override_settings(SITEVARS_USE_CACHE=False)
     def test_sitevar_get_value_no_cache(self):
@@ -238,7 +346,7 @@ class SiteVarTemplateTagTest(TestCase):
         cls.sitevar = SiteVar.objects.create(
             site=cls.site, name="testvar", value="testvalue"
         )
-        cls.request = Mock()
+        cls.request = RequestFactory().get("/")
         cls.request.site = cls.site
 
     def test_sitevar_exists(self):
@@ -270,6 +378,25 @@ class SiteVarTemplateTagTest(TestCase):
         )
         rendered = template.render(Context({"request": self.request}))
         self.assertEqual(rendered.strip(), "defaultvalue")
+
+    def test_sitevar_no_site_middleware(self):
+        """Test that the sitevar is retrieved correctly without site middleware."""
+        template = Template("{% load sitevars %}{% sitevar 'testvar' %}")
+        request = RequestFactory().get("/")
+        assert not hasattr(request, "site")
+
+        rendered = template.render(Context({"request": request}))
+        self.assertEqual(rendered.strip(), "testvalue")
+
+    @skipIf(
+        config.site_model.lower() != "sitevars.placeholdersite",
+        "Test only applies to PlaceholderSite model.",
+    )
+    def test_sitevar_placeholder_without_request_context(self):
+        """Test that the sitevar is retrieved correctly without a request in context."""
+        template = Template("{% load sitevars %}{% sitevar 'testvar' %}")
+        rendered = template.render(Context({}))
+        self.assertEqual(rendered.strip(), "testvalue")
 
 
 class CheckContribSitesComesBeforeSitevarsTest(TestCase):

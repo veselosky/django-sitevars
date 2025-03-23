@@ -30,15 +30,21 @@ class SiteVarQueryset(models.QuerySet):
         data = site.vars.get_value("json_data", "{}", json.loads)
         """
         conf = apps.get_app_config("sitevars")
-        # Determine the site ID from the queryset
-        site_id = None
-        for lookup in self.query.where.children:
-            if not isinstance(lookup, models.fields.related_lookups.RelatedExact):
-                continue
-            if lookup.lhs.target.name == "site":
-                site_id = lookup.rhs
-                break
-        if site_id is None:
+        site_id: int = 0
+        # If using the PlaceholderSite model, use the hardcoded ID
+        if config.site_model == "sitevars.PlaceholderSite":
+            site_id = 1
+
+        # Otherwise, determine the site ID from the queryset
+        if not site_id:
+            for lookup in self.query.where.children:
+                if not isinstance(lookup, models.fields.related_lookups.RelatedExact):
+                    continue
+                if lookup.lhs.target.name == "site":
+                    site_id = lookup.rhs
+                    break
+
+        if not site_id:
             raise ValueError("get_value requires a queryset filtered by site")
 
         # Check whether we are operating inside a transaction

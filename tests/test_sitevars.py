@@ -274,7 +274,7 @@ class SiteVarTemplateTagTest(TestCase):
         cls.sitevar = SiteVar.objects.create(
             site=cls.site, name="testvar", value="testvalue"
         )
-        cls.request = Mock()
+        cls.request = RequestFactory().get("/")
         cls.request.site = cls.site
 
     def test_sitevar_exists(self):
@@ -306,6 +306,25 @@ class SiteVarTemplateTagTest(TestCase):
         )
         rendered = template.render(Context({"request": self.request}))
         self.assertEqual(rendered.strip(), "defaultvalue")
+
+    def test_sitevar_no_site_middleware(self):
+        """Test that the sitevar is retrieved correctly without site middleware."""
+        template = Template("{% load sitevars %}{% sitevar 'testvar' %}")
+        request = RequestFactory().get("/")
+        assert not hasattr(request, "site")
+
+        rendered = template.render(Context({"request": request}))
+        self.assertEqual(rendered.strip(), "testvalue")
+
+    @skipIf(
+        config.site_model.lower() != "sitevars.placeholdersite",
+        "Test only applies to PlaceholderSite model.",
+    )
+    def test_sitevar_placeholder_without_request_context(self):
+        """Test that the sitevar is retrieved correctly without a request in context."""
+        template = Template("{% load sitevars %}{% sitevar 'testvar' %}")
+        rendered = template.render(Context({}))
+        self.assertEqual(rendered.strip(), "testvalue")
 
 
 class CheckContribSitesComesBeforeSitevarsTest(TestCase):

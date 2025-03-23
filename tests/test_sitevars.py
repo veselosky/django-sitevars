@@ -1,3 +1,4 @@
+from unittest import skipIf
 from unittest.mock import Mock, patch, ANY
 
 from django.apps import apps
@@ -133,6 +134,10 @@ class SiteVarModelTest(TransactionTestCase):
         with self.assertRaises(IntegrityError):
             SiteVar.objects.create(site_id=1, name="testvar", value="othervalue")
 
+    @skipIf(
+        config.site_model.lower() == "sitevars.placeholdersite",
+        "Test does not apply to when using PlaceholderSite model.",
+    )
     def test_sitevar_unique_together_different_sites(self):
         """Test that sitevar names are not unique across different sites."""
         Site = apps.get_model(*config.site_model.split("."))
@@ -147,10 +152,24 @@ class SiteVarModelTest(TransactionTestCase):
             SiteVar.objects.filter(site=site1).get_value("testvar"), "testvalue"
         )
 
+    @skipIf(
+        config.site_model.lower() == "sitevars.placeholdersite",
+        "Test does not apply to when using PlaceholderSite model.",
+    )
     def test_get_value_requires_queryset_filtered_by_site(self):
         """Test that get_value raises an error when the queryset is not filtered by site."""
         with self.assertRaises(ValueError):
             SiteVar.objects.get_value("testvar")
+
+    @skipIf(
+        config.site_model.lower() != "sitevars.placeholdersite",
+        "Test only applies to PlaceholderSite model.",
+    )
+    def test_get_value_placeholder_site(self):
+        """Test that get_value automatically filters queries when using the placeholder site."""
+        SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
+        with self.assertNumQueries(1):
+            self.assertEqual(SiteVar.objects.get_value("testvar"), "testvalue")
 
     @override_settings(SITEVARS_USE_CACHE=False)
     def test_sitevar_get_value_no_cache(self):

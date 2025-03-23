@@ -50,6 +50,76 @@ class AdminSmokeTest(TestCase):
                 self.assertEqual(resp_add.status_code, 200)
 
 
+class AppConfigTest(TestCase):
+    @override_settings(SITEVARS_USE_CACHE=False)
+    def test_use_cache_false(self):
+        """Test the use_cache property when SITEVARS_USE_CACHE is False."""
+        self.assertFalse(config.use_cache)
+
+    def test_use_cache_default(self):
+        """Test the use_cache property."""
+        self.assertTrue(config.use_cache)
+
+    @skipIf(
+        config.site_model != "sitevars.PlaceholderSite",
+        "Test only applies to PlaceholderSite model.",
+    )
+    def test_get_site_id_for_request__placeholder_site(self):
+        """Test the get_site_id_for_request method."""
+        request = RequestFactory().get("/")
+        self.assertEqual(config.get_site_id_for_request(request), 1)
+
+    @skipIf(
+        config.site_model == "sitevars.PlaceholderSite",
+        "Not used with PlaceholderSite model.",
+    )
+    def test_get_site_id_for_request__site_middleware(self):
+        """Test the get_site_id_for_request when request.site is valid."""
+        request = RequestFactory().get("/")
+        request.site = Mock()
+        request.site.id = 7
+        self.assertEqual(config.get_site_id_for_request(request), 7)
+
+    @skipIf(
+        config.site_model != "tests.FakeSite",
+        "Only applies to custom SITE_MODEL.",
+    )
+    def test_get_site_id_for_request__current_site_function(self):
+        """Test the get_site_id_for_request when CURRENT_SITE_FUNCTION is set."""
+        with override_settings(CURRENT_SITE_FUNCTION="tests.models.get_current_site"):
+            request = RequestFactory().get("/")
+            with self.assertLogs("sitevars.testing", "INFO") as cm:
+                self.assertEqual(config.get_site_id_for_request(request), 1)
+            self.assertIn("INFO:sitevars.testing:get_current_site() called", cm.output)
+
+    @skipIf(
+        config.site_model != "tests.FakeSite",
+        "Only applies to custom SITE_MODEL.",
+    )
+    def test_get_site_id_for_request__current_site_method(self):
+        """Test the get_site_id_for_request when CURRENT_SITE_METHOD is set."""
+        with override_settings(CURRENT_SITE_METHOD="get_current"):
+            request = RequestFactory().get("/")
+            with self.assertLogs("sitevars.testing", "INFO") as cm:
+                self.assertEqual(config.get_site_id_for_request(request), 1)
+            self.assertIn(
+                "INFO:sitevars.testing:FakeSite.get_current() called", cm.output
+            )
+
+    @skipIf(
+        config.site_model != "tests.FakeSite",
+        "Only applies to contrib.sites or compatible.",
+    )
+    def test_get_site_id_for_request__fallback_to_get_current(self):
+        """Test that it falls back to Site.objects.get_current"""
+        request = RequestFactory().get("/")
+        with self.assertLogs("sitevars.testing", "INFO") as cm:
+            self.assertEqual(config.get_site_id_for_request(request), 1)
+        self.assertEqual(
+            cm.output, ["INFO:sitevars.testing:FakeSiteManager.get_current() called"]
+        )
+
+
 class ContextProcessorTest(TestCase):
     def test_context_processor_returns_dict_with_one_query(self):
         """Test the context processor "happy path"."""
@@ -92,7 +162,8 @@ class ContextProcessorTest(TestCase):
         SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
 
         with patch("sitevars.context_processors.cache") as mock_cache:
-            request = Mock()
+            request = RequestFactory().get("/")
+            request.site = Mock()
             request.site.id = 1
             mock_cache.get.return_value = {"testvar": "testvalue"}
             with self.assertNumQueries(0):
@@ -111,7 +182,8 @@ class ContextProcessorTest(TestCase):
         SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
 
         with patch("sitevars.context_processors.cache") as mock_cache:
-            request = Mock()
+            request = RequestFactory().get("/")
+            request.site = Mock()
             request.site.id = 1
             context = inject_sitevars(request)
             self.assertEqual(context, {"testvar": "testvalue"})

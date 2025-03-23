@@ -7,7 +7,7 @@ from django.core.checks import Warning
 from django.db import transaction
 from django.db.utils import IntegrityError
 from django.template import Context, Template
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings, RequestFactory
 from django.urls import reverse
 
 from sitevars import checks
@@ -50,14 +50,16 @@ class AdminSmokeTest(TestCase):
 
 
 class ContextProcessorTest(TestCase):
-    def test_context_processor_returns_dict(self):
-        """Test the context processor."""
+    def test_context_processor_returns_dict_with_one_query(self):
+        """Test the context processor "happy path"."""
         # Create a sitevar
         SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
 
         # Test the context processor returns the sitevar and populates the cache
         with patch("sitevars.context_processors.cache") as mock_cache:
-            request = Mock()
+            request = RequestFactory().get("/")
+            # Simulate site middleware
+            request.site = Mock()
             request.site.id = 1
             mock_cache.get.return_value = None
             with self.assertNumQueries(1):
@@ -67,6 +69,21 @@ class ContextProcessorTest(TestCase):
             mock_cache.set.assert_called_once_with(
                 "sitevars:1", {"testvar": "testvalue"}
             )
+
+    def test_context_processor_returns_dict__without_site_middleware(self):
+        """Test the context processor when sites middleware not installed."""
+        # Create a sitevar
+        SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
+
+        # Test the context processor returns the sitevar and populates the cache
+        with patch("sitevars.context_processors.cache") as mock_cache:
+            request = RequestFactory().get("/")
+            assert not hasattr(request, "site")
+            mock_cache.get.return_value = None
+
+            context = inject_sitevars(request)
+
+            self.assertEqual(context, {"testvar": "testvalue"})
 
     def test_cache_used(self):
         """Test that the context processor uses the cache."""

@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 1.1.1
+
+- CHANGED: Fixed several bugs that caused failures when not using
+  `django.contrib.sites`.
+- CHANGED: Added CURRENT_SITE_METHOD and CURRENT_SITE_FUNCTION settings to make
+  determining the current site configurable when using a custom SITE_MODEL.
+- CHANGED: Updated README documentation.
+
 ## 1.1.0
 
 - ADDED: Support for a swappable site model so you can use it without

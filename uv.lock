@@ -369,6 +369,8 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "coverage", version = "7.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "coverage", version = "7.7.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
     { name = "django-debug-toolbar", version = "4.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "django-debug-toolbar", version = "5.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
     { name = "django-environ", version = "0.11.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
@@ -380,10 +382,6 @@ dev = [
     { name = "docutils", version = "0.21.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
     { name = "pre-commit", version = "3.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "pre-commit", version = "4.2.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
-    { name = "pytest" },
-    { name = "pytest-cov", version = "5.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
-    { name = "pytest-cov", version = "6.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
-    { name = "pytest-django" },
 ]
 
 [package.dev-dependencies]
@@ -407,6 +405,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "coverage", marker = "extra == 'dev'" },
     { name = "django", specifier = ">=4.2" },
     { name = "django-debug-toolbar", marker = "extra == 'dev'" },
     { name = "django-environ", marker = "extra == 'dev'" },
@@ -414,9 +413,6 @@ requires-dist = [
     { name = "djlint", marker = "extra == 'dev'" },
     { name = "docutils", marker = "extra == 'dev'", specifier = ">=0.19" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.5.0" },
-    { name = "pytest", marker = "extra == 'dev'" },
-    { name = "pytest-cov", marker = "extra == 'dev'" },
-    { name = "pytest-django", marker = "extra == 'dev'" },
 ]
 provides-extras = ["dev"]
 

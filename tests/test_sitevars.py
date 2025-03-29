@@ -1,15 +1,14 @@
 import json
 from unittest import skipIf
-from unittest.mock import Mock, patch, ANY
+from unittest.mock import Mock
 
 from django.apps import apps
 from django.contrib.admin import site as adminsite
 from django.contrib.auth.models import User
 from django.core.checks import Warning
-from django.db import transaction
 from django.db.utils import IntegrityError
 from django.template import Context, Template
-from django.test import TestCase, TransactionTestCase, override_settings, RequestFactory
+from django.test import TestCase, override_settings, RequestFactory
 from django.urls import reverse
 
 from sitevars import checks
@@ -52,15 +51,6 @@ class AdminSmokeTest(TestCase):
 
 
 class AppConfigTest(TestCase):
-    @override_settings(SITEVARS_USE_CACHE=False)
-    def test_use_cache_false(self):
-        """Test the use_cache property when SITEVARS_USE_CACHE is False."""
-        self.assertFalse(config.use_cache)
-
-    def test_use_cache_default(self):
-        """Test the use_cache property."""
-        self.assertTrue(config.use_cache)
-
     @skipIf(
         config.site_model != "sitevars.PlaceholderSite",
         "Test only applies to PlaceholderSite model.",
@@ -127,180 +117,26 @@ class ContextProcessorTest(TestCase):
         # Create a sitevar
         SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
 
-        # Test the context processor returns the sitevar and populates the cache
-        with patch("sitevars.context_processors.cache") as mock_cache:
-            request = RequestFactory().get("/")
-            # Simulate site middleware
-            request.site = Mock()
-            request.site.id = 1
-            mock_cache.get.return_value = None
-            with self.assertNumQueries(1):
-                context = inject_sitevars(request)
-            self.assertEqual(context, {"testvar": "testvalue"})
-            mock_cache.get.assert_called_once_with("sitevars:1", None)
-            mock_cache.set.assert_called_once_with(
-                "sitevars:1", {"testvar": "testvalue"}
-            )
+        request = RequestFactory().get("/")
+        # Simulate site middleware
+        request.site = Mock()
+        request.site.id = 1
+        with self.assertNumQueries(1):
+            context = inject_sitevars(request)
+        self.assertEqual(context, {"testvar": "testvalue"})
 
     def test_context_processor_returns_dict__without_site_middleware(self):
         """Test the context processor when sites middleware not installed."""
         # Create a sitevar
         SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
 
-        # Test the context processor returns the sitevar and populates the cache
-        with patch("sitevars.context_processors.cache") as mock_cache:
-            request = RequestFactory().get("/")
-            assert not hasattr(request, "site")
-            mock_cache.get.return_value = None
+        # Test the context processor returns the sitevar
+        request = RequestFactory().get("/")
+        assert not hasattr(request, "site")
 
-            context = inject_sitevars(request)
+        context = inject_sitevars(request)
 
-            self.assertEqual(context, {"testvar": "testvalue"})
-
-    def test_cache_used(self):
-        """Test that the context processor uses the cache."""
-        # Create a sitevar
-        SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
-
-        with patch("sitevars.context_processors.cache") as mock_cache:
-            request = RequestFactory().get("/")
-            request.site = Mock()
-            request.site.id = 1
-            mock_cache.get.return_value = {"testvar": "testvalue"}
-            with self.assertNumQueries(0):
-                context = inject_sitevars(request)
-            self.assertEqual(context, {"testvar": "testvalue"})
-            mock_cache.get.assert_called_once_with("sitevars:1", None)
-            mock_cache.set.assert_not_called()
-
-    @override_settings(SITEVARS_USE_CACHE=False)
-    def test_context_processor_caching_off(self):
-        """Test the context processor with caching off."""
-        conf = apps.get_app_config("sitevars")
-        self.assertFalse(conf.use_cache)  # Because SITEVARS_USE_CACHE=False
-
-        # Create a sitevar
-        SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
-
-        with patch("sitevars.context_processors.cache") as mock_cache:
-            request = RequestFactory().get("/")
-            request.site = Mock()
-            request.site.id = 1
-            context = inject_sitevars(request)
-            self.assertEqual(context, {"testvar": "testvalue"})
-            mock_cache.get.assert_not_called()
-            mock_cache.set.assert_not_called()
         self.assertEqual(context, {"testvar": "testvalue"})
-
-
-class SiteVarModelTransactionTest(TransactionTestCase):
-    # Note: we use TransactionTestCase to manually manage transactions where TestCase
-    # would rollback the transaction before the cache is cleared.
-
-    def test_sitevar_get_value_cache_hit(self):
-        """Test that get_value uses the cache."""
-        site = config.Site.objects.get(pk=1)
-        with patch("sitevars.models.cache") as mock_cache:
-            mock_cache.get.return_value = {"testvar": "testvalue"}
-            with self.assertNumQueries(0):
-                self.assertEqual(site.vars.get_value("testvar"), "testvalue")
-            mock_cache.get.assert_called_once_with("sitevars:1", None)
-            mock_cache.set.assert_not_called()
-
-    @override_settings(SITEVARS_USE_CACHE=False)
-    def test_sitevar_get_value_no_cache(self):
-        """Test that get_value honors the use_cache app setting."""
-        self.assertFalse(config.use_cache)
-        site = config.Site.objects.get(pk=1)
-        with patch("sitevars.models.cache") as mock_cache:
-            mock_cache.get.return_value = None
-            SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
-            self.assertEqual(site.vars.get_value("testvar"), "testvalue")
-            mock_cache.get.assert_not_called()
-            mock_cache.set.assert_not_called()
-            with self.assertNumQueries(1):
-                self.assertEqual(
-                    site.vars.get_value("nonexistent"),
-                    "",
-                )
-
-    def test_get_value_ignores_cache_inside_transaction(self):
-        """Test that the cache is ignored inside a transaction.
-
-        Because transactions can rollback (and there is no transaction.on_rollback we
-        can use to detect that), there's a potential for the cache to get out of sync
-        if we both write (which clears the cache) and then read (which repopulates the
-        cache) inside a transaction that is then rolled back. To avoid this, we ignore
-        the cache inside a transaction. This is an edge case that is unlikely (though
-        not impossible) to occur in production use, but always happens in TestCase
-        tests (which is why we use TransactionTestCase).
-        """
-        site = config.Site.objects.get(pk=1)
-        with transaction.atomic():
-            # Attempt to retrieve a sitevar. This would normally populate the cache.
-            with patch("sitevars.models.cache") as mock_cache:
-                val = site.vars.get_value("testvar", None)
-                mock_cache.get.assert_not_called()
-                mock_cache.set.assert_not_called()
-                self.assertIsNone(val)
-
-            # Cache should still be cleared on write
-            with patch("sitevars.models.transaction") as mock_xact:
-                SiteVar.objects.create(site=site, name="testvar", value="testvalue")
-                mock_xact.on_commit.assert_called_once_with(ANY)
-
-            # The cache should not be used here
-            with patch("sitevars.models.cache") as mock_cache:
-                with self.assertNumQueries(1):
-                    self.assertEqual(site.vars.get_value("testvar"), "testvalue")
-                mock_cache.get.assert_not_called()
-                mock_cache.set.assert_not_called()
-
-    def test_sitevar_clear_cache(self):
-        """Test that the cache is cleared correctly."""
-        SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
-        with patch("sitevars.models.cache") as mock_cache:
-            SiteVar.objects.clear_cache(site_id=1)
-            mock_cache.delete.assert_called_once_with("sitevars:1")
-
-    def test_sitevar_clear_cache_all_sites(self):
-        """Test that the cache is cleared for all sites."""
-        site1 = config.Site.objects.get(pk=1)
-        site2 = config.Site.objects.create(domain="example2.com", name="example2.com")
-        SiteVar.objects.create(site=site1, name="testvar", value="testvalue")
-        SiteVar.objects.create(site=site2, name="testvar", value="othervalue")
-        with patch("sitevars.models.cache") as mock_cache:
-            SiteVar.objects.clear_cache()
-            mock_cache.delete.assert_any_call("sitevars:1")
-            mock_cache.delete.assert_any_call("sitevars:2")
-
-    def test_delete_clears_cache(self):
-        """Test that the cache is cleared on commit when a sitevar is deleted."""
-        sitevar = SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
-        with patch("sitevars.models.transaction") as mock_xact:
-            sitevar.delete()
-            mock_xact.on_commit.assert_called()
-
-    def test_save_clears_cache(self):
-        """Test that the cache is cleared on commit when a sitevar is saved."""
-        sitevar = SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
-        with patch("sitevars.models.transaction") as mock_xact:
-            sitevar.save()
-            mock_xact.on_commit.assert_called()
-
-    @skipIf(
-        config.site_model.lower() == "sitevars.placeholdersite",
-        "Test does not apply when using PlaceholderSite model.",
-    )
-    def test_get_value_requires_queryset_filtered_by_site(self):
-        """Test that get_value raises an error when the queryset is not filtered by site.
-        Note that this specific error only occurs when NOT in a transaction. In a
-        transaction, the cache is ignored, obviating the need to look up a site ID. So
-        this might work if you only have one site, but might raise MultipleObjectsReturned
-        if you have multiple sites.
-        """
-        with self.assertRaises(ValueError):
-            SiteVar.objects.get_value("testvar")
 
 
 class SiteVarModelTest(TestCase):

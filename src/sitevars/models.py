@@ -1,8 +1,7 @@
 import typing as T
 
 from django.apps import apps
-from django.core.cache import cache
-from django.db import models, transaction
+from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 config = apps.get_app_config("sitevars")
@@ -51,7 +50,6 @@ class SiteVarQueryset(models.QuerySet):
             site.vars.get_value("json_data", [], json.loads)
 
         """
-        conf = apps.get_app_config("sitevars")
         if not callable(asa):
             raise TypeError(f"asa must be a callable, got {type(asa).__name__} instead")
         if not isinstance(name, str):
@@ -68,50 +66,12 @@ class SiteVarQueryset(models.QuerySet):
                 "a string value to the correct type."
             )
 
-        # Check whether we are operating inside a transaction
-        in_transaction = not transaction.get_connection().get_autocommit()
-
         # First we get the value, which should be a str, then we convert if requested
-        val = None
-
-        # If we're using cache, we need to get the site id to calculate the cache key,
-        # then retrieve the value.
-        # It's not safe to use the cache in a transaction, as it can get out of sync
-        if conf.use_cache and not in_transaction:
-            site_id: int = 0
-            # If using the PlaceholderSite model, use the hardcoded ID
-            if config.site_model == "sitevars.PlaceholderSite":
-                site_id = 1
-
-            # Otherwise, determine the site ID from the queryset
-            if not site_id:
-                for lookup in self.query.where.children:
-                    if not isinstance(
-                        lookup, models.fields.related_lookups.RelatedExact
-                    ):
-                        continue
-                    if lookup.lhs.target.name == "site":
-                        site_id = lookup.rhs
-                        break
-
-            if not site_id:
-                raise ValueError("get_value requires a queryset filtered by site")
-
-            # Construct the cache key and retrieve the cached value
-            key = f"sitevars:{site_id}"
-            allvars = cache.get(key, None)
-            if allvars is None:
-                # Cache is empty, populate the cache
-                allvars = {var.name: var.value for var in self.all()}
-                cache.set(key, allvars)
-            val = allvars.get(name, default)
-
-        if val is None:  # Cache miss or not using cache
-            try:
-                val = self.get(name=name).value
-            # Note explicitly NOT catching MultipleObjectsReturned, that's still an error
-            except self.model.DoesNotExist:
-                val = default
+        try:
+            val = self.get(name=name).value
+        # Note explicitly NOT catching MultipleObjectsReturned, that's still an error
+        except self.model.DoesNotExist:
+            val = default
 
         # If the value is not a str, it's the default they passed. Return it as-is.
         if not isinstance(val, str):
@@ -146,19 +106,6 @@ class SiteVarQueryset(models.QuerySet):
             )
         return rval
 
-    def clear_cache(self, site_id: T.Optional[int] = None):
-        """
-        Clear the cache for the given site_id, or all sites if no site_id is given.
-        """
-        Site = apps.get_model(*config.site_model.split("."))
-        if site_id is not None:
-            key = f"sitevars:{site_id}"
-            cache.delete(key)
-        else:
-            for site_id in Site.objects.values_list("pk", flat=True):
-                key = f"sitevars:{site_id}"
-                cache.delete(key)
-
 
 class SiteVar(models.Model):
     """
@@ -186,16 +133,6 @@ class SiteVar(models.Model):
 
     def __str__(self):
         return f"{self.name}={self.value} ({self.site.domain})"
-
-    def save(self, *args, **kwargs):
-        # Clear the cache if it exists
-        transaction.on_commit(lambda: self.__class__.objects.clear_cache(self.site.id))
-        return super().save(*args, **kwargs)
-
-    def delete(self, *args, **kwargs):
-        # Clear the cache if it exists
-        transaction.on_commit(lambda: self.__class__.objects.clear_cache(self.site.id))
-        return super().delete(*args, **kwargs)
 
 
 class PlaceholderSite(models.Model):

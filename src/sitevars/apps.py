@@ -45,11 +45,6 @@ class SitevarsConfig(AppConfig):
     def ready(self):
         post_migrate.connect(create_default_site, sender=self)
 
-    # Note: Not cached to ease testing different settings. The lookup is cheap.
-    @property
-    def use_cache(self):
-        return getattr(settings, "SITEVARS_USE_CACHE", True)
-
     @cached_property
     def site_model(self):
         """

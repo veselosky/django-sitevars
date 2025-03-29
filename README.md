@@ -212,16 +212,6 @@ thing.
 However, you can also get the current site object as shown above, and that will also
 work.
 
-## Disabling the Cache
-
-To reduce load on the database, `sitevars` maintains a cache of all variables per site
-(using the default cache configured in your Django project). If you prefer not to use
-the cache for some reason, you can disable it in your settings file.
-
-```python
-SITEVARS_USE_CACHE = False
-```
-
 ## Development
 
 I recommend using [Astral's uv](https://docs.astral.sh/uv/) to manage your local

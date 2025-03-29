@@ -1,4 +1,5 @@
 import typing as T
+from collections.abc import Mapping
 
 from django.apps import apps
 from django.db import models
@@ -105,6 +106,72 @@ class SiteVarQueryset(models.QuerySet):
                 f"but asa function {asa} returned type {type(rval).__name__}"
             )
         return rval
+
+    def get_multiple_values(
+        self,
+        names: T.Optional[T.List[str]] = None,
+        *,
+        defaults: T.Optional[T.Mapping] = None,
+        asa: T.Union[T.Callable, T.Mapping] = str,
+    ) -> T.Dict[str, object]:
+        """
+        Given a queryset pre-filtered by site, returns a dictionary mapping
+        the given SiteVar names to their vaues. If no names are given, returns ALL
+        SiteVars for the site.
+
+        Default values for each name may be passed as a mapping (dict) in the
+        ``defaults`` argument.
+
+        If ``asa`` is a callable, it will be used to convert each value to the correct
+        type. If ``asa`` is a mapping, it will be used to look up a conversion function
+        by the SiteVar name. The mapping should be a dictionary mapping the name of the
+        SiteVar to the conversion function to use. Any name not found in the mapping
+        will be returned as a string.
+
+        The values will be fetched from the database in a single query, so if you need
+        to access multiple SiteVars in the same scope, this will be more efficient than
+        calling ``get_value`` multiple times.
+        """
+        if defaults is None:
+            defaults = {}
+        if names is None:
+            names = []
+        if not issubclass(type(defaults), Mapping):
+            raise TypeError(
+                f"defaults must be a mapping, got {type(defaults).__name__} instead"
+            )
+        if not callable(asa) and not issubclass(type(asa), Mapping):
+            raise TypeError(
+                f"asa must be a callable or a mapping, got {type(asa).__name__} instead"
+            )
+
+        # Get the values from the database
+        if not names:
+            # If no names were passed, get all SiteVars for the site
+            qs = self.all()
+        else:
+            qs = self.filter(name__in=names)
+
+        if callable(asa) and asa is not str:
+            vals = {var.name: asa(var.value) for var in qs}
+        else:
+            vals = {var.name: var.value for var in qs}
+
+        # Fill in any missing values
+        for name in names:
+            if name not in vals:
+                if callable(asa) and asa is not str:
+                    vals[name] = asa(defaults.get(name, ""))
+                else:
+                    vals[name] = defaults.get(name, "")
+
+        # If asa is a mapping, convert each value using the mapping
+        if isinstance(asa, Mapping):
+            for name in asa:
+                if name in vals and issubclass(type(vals[name]), str):
+                    vals[name] = asa[name](vals[name])
+
+        return vals
 
 
 class SiteVar(models.Model):

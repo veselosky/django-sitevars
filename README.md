@@ -106,6 +106,21 @@ def my_view(request):
     ...
 ```
 
+The manager also provides `get_multiple_values` which returns multiple values in a
+single query. It works similarly, but takes a list of names, defaults are passed as a
+`dict`, and `asa` may also be a dict. If you pass no names, returns ALL values for the
+site.
+
+```python
+    def get_multiple_values(
+        self,
+        names: T.Optional[T.List[str]] = None,
+        *,
+        defaults: T.Optional[T.Mapping] = None,
+        asa: T.Union[T.Callable, T.Mapping] = str,
+    ) -> T.Dict[str, object]:
+```
+
 ## Using with `django.contrib.sites`
 
 If you have `django.contrib.sites` in your installed apps, SiteVars will be associated

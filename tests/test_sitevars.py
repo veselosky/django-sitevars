@@ -342,6 +342,90 @@ class SiteVarModelTest(TestCase):
         self.assertEqual(site.vars.get_value("testvar"), '["value1", "value2"]')
 
 
+class GetMultipleValuesTest(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.site_id = 1
+        SiteVar.objects.create(site_id=cls.site_id, name="var1", value="value1")
+        SiteVar.objects.create(site_id=cls.site_id, name="var2", value="value2")
+        SiteVar.objects.create(site_id=cls.site_id, name="var3", value="value3")
+
+    def test_get_all_values(self):
+        """Test that all SiteVars are returned when no names are provided."""
+        result = SiteVar.objects.filter(site_id=self.site_id).get_multiple_values()
+        expected = {"var1": "value1", "var2": "value2", "var3": "value3"}
+        self.assertEqual(result, expected)
+
+    def test_get_specific_values(self):
+        """Test that only specified SiteVars are returned."""
+        result = SiteVar.objects.filter(site_id=self.site_id).get_multiple_values(
+            ["var1", "var3"]
+        )
+        expected = {"var1": "value1", "var3": "value3"}
+        self.assertEqual(result, expected)
+
+    def test_get_values_with_defaults(self):
+        """Test that missing SiteVars are filled with default values."""
+        result = SiteVar.objects.filter(site_id=self.site_id).get_multiple_values(
+            ["var1", "var4"],
+            defaults={"var4": "default_value4"},
+        )
+        expected = {"var1": "value1", "var4": "default_value4"}
+        self.assertEqual(result, expected)
+
+    def test_get_values_with_callable_asa(self):
+        """Test that values are transformed using a callable asa."""
+        result = SiteVar.objects.filter(site_id=self.site_id).get_multiple_values(
+            ["var1", "var2"],
+            asa=str.upper,
+        )
+        expected = {"var1": "VALUE1", "var2": "VALUE2"}
+        self.assertEqual(result, expected)
+
+    def test_get_values_with_mapping_asa(self):
+        """Test that values are transformed using a mapping asa."""
+        result = SiteVar.objects.filter(site_id=self.site_id).get_multiple_values(
+            ["var1", "var2", "var3"],
+            asa={"var1": str.upper, "var2": lambda x: x[::-1]},
+        )
+        expected = {"var1": "VALUE1", "var2": "2eulav", "var3": "value3"}
+        self.assertEqual(result, expected)
+
+    def test_get_values_with_defaults_and_asa_callable(self):
+        """Test that missing SiteVars are filled with default values and transformed."""
+        result = SiteVar.objects.filter(site_id=self.site_id).get_multiple_values(
+            ["var1", "var4"],
+            defaults={"var4": "default_value4"},
+            asa=str.upper,
+        )
+        expected = {"var1": "VALUE1", "var4": "DEFAULT_VALUE4"}
+        self.assertEqual(result, expected)
+
+    def test_get_values_with_defaults_and_asa_mapping(self):
+        """Test that missing SiteVars are filled with default values and transformed."""
+        result = SiteVar.objects.filter(site_id=self.site_id).get_multiple_values(
+            ["var1", "var4"],
+            defaults={"var4": "default_value4"},
+            asa={"var1": str.upper, "var4": lambda x: x[::-1]},
+        )
+        expected = {"var1": "VALUE1", "var4": "4eulav_tluafed"}
+        self.assertEqual(result, expected)
+
+    def test_invalid_defaults_argument(self):
+        """Test that a TypeError is raised for invalid defaults argument."""
+        with self.assertRaises(TypeError):
+            SiteVar.objects.filter(site_id=self.site_id).get_multiple_values(
+                ["var1"], defaults="not_a_mapping"
+            )
+
+    def test_invalid_asa_argument(self):
+        """Test that a TypeError is raised for invalid asa argument."""
+        with self.assertRaises(TypeError):
+            SiteVar.objects.filter(site_id=self.site_id).get_multiple_values(
+                ["var1"], asa="not_callable_or_mapping"
+            )
+
+
 class SiteVarTemplateTagTest(TestCase):
     @classmethod
     def setUpTestData(cls) -> None:

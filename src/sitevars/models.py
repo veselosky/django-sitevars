@@ -199,7 +199,12 @@ class SiteVar(models.Model):
         verbose_name_plural = _("site variables")
 
     def __str__(self):
-        return f"{self.name}={self.value} ({self.site.domain})"
+        if config.site_model == "sitevars.PlaceholderSite":
+            return f"{self.name}={self.value}"
+        elif hasattr(self.site, "domain"):
+            return f"{self.name}={self.value} ({self.site.domain})"
+        else:
+            return f"{self.name}={self.value} ({self.site})"
 
 
 class PlaceholderSite(models.Model):

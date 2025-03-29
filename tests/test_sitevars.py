@@ -143,7 +143,10 @@ class SiteVarModelTest(TestCase):
     def test_sitevar_str(self):
         """Test the string representation of a sitevar."""
         sitevar = SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
-        self.assertEqual(str(sitevar), "testvar=testvalue (example.com)")
+        if config.site_model == "sitevars.PlaceholderSite":
+            self.assertEqual(str(sitevar), "testvar=testvalue")
+        elif hasattr(sitevar.site, "domain"):
+            self.assertEqual(str(sitevar), "testvar=testvalue (example.com)")
 
     def test_sitevar_unique_together(self):
         """Test that sitevar names are unique per site."""

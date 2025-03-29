@@ -227,6 +227,75 @@ thing.
 However, you can also get the current site object as shown above, and that will also
 work.
 
+## Building reusable apps with swappable site model
+
+`sitevars` exposes some utilities to make it easier to build reusable apps that support
+a swappable site model. To use them, first fetch the AppConfig:
+
+```python
+from django.apps import apps
+sitevars = apps.get_app_config("sitevars")
+```
+
+The following properties and methods are available on the resulting object.
+
+- `site_model`: Property that holds the Django name of the site model, e.g.
+  "sites.Site".
+- `Site`: Property that holds the model class itself.
+- `get_site_for_request(request)`: Given a request, returns the model instance
+  representing the current site (using whatver site framework has been configured).
+- `get_site_id_for_request(request)`: Given a request, returns the primary key of the
+  current site. This is useful if you only need to filter a queryset on `site_id` but
+  don't otherwise need the site object. Saves some memory and possibly a database query.
+
+Note that Django does not directly support a swappable site model, so when you generate
+migrations, your migration file will have hard dependencies and literals for its site
+foreign keys. Edit the migration to import the `sitevars` AppConfig as above. In the
+`Migration.dependencies` replace the listed sites migration with
+`migrations.swappable_model(sitevars.site_model)` and change any site foreign keys to
+use `sitevars.site_model`.
+
+```python
+import django.db.models.deletion
+from django.apps import apps
+from django.db import migrations, models
+
+sitevars = apps.get_app_config("sitevars")
+
+class Migration(migrations.Migration):
+
+  dependencies = [
+    # ("sites", "0002_alter_domain_unique"),  # If django.contrib.sites
+    migrations.swappable_dependency(sitevars.site_model),
+  ]
+  operations = [
+    migrations.CreateModel(
+      name="MyModel",
+      fields=[
+        (
+          "id",
+          models.BigAutoField(
+              auto_created=True,
+              primary_key=True,
+              serialize=False,
+              verbose_name="ID",
+          ),
+        ),
+        (
+          "site",
+          models.ForeignKey(
+              on_delete=django.db.models.deletion.CASCADE,
+              related_name="something",
+              # to="sites.Site",  # Django inserts this
+              to=config.site_model,  # Replace with this
+              verbose_name="site",
+          ),
+        ),
+      ]
+    )
+  ]
+```
+
 ## Development
 
 I recommend using [Astral's uv](https://docs.astral.sh/uv/) to manage your local

@@ -9,49 +9,94 @@ config = apps.get_app_config("sitevars")
 
 
 class SiteVarQueryset(models.QuerySet):
-    def get_value(self, name: str, default: str = "", asa: T.Callable = str):
+    def get_value(self, name: str, default: object = "", asa: T.Callable = str):
         """
         Given a queryset pre-filtered by site, returns the value of the SiteVar with
         the given name. If no value is set for that name, returns the passed default
-        value, or empty string if no default was passed. To transform the stored string
-        to another type, pass a transform function in the asa argument. The default
-        value should be passed as a string; it will be passed to the asa function
-        for transformation.
+        value, or empty string if no default was passed.
 
-        Examples:
+        To transform the stored string to another type, pass a transform function in
+        the ``asa`` argument. If the default value is passed as a string, it will be
+        passed to the ``asa`` function for transformation. Exceptions raised by the
+        ``asa`` function are propagated, so be prepared to catch them.
 
-        # Returns the string if set, or "" if not set
-        x = site.vars.get_value("analytics_id")
-        # Returns the string if set, or "Ignore" if not set
-        x = site.vars.get_value("abort_retry_ignore", "Ignore")
-        # Returns the number of pages as an integer. Note the default should be a str.
-        num_items = site.vars.get_value("paginate_by", default="10", asa=int)
-        # Parses the value as JSON and returns the result
-        data = site.vars.get_value("json_data", "{}", json.loads)
+        ``None`` is a valid default value for any type, but this function will never
+        return ``None`` unless you pass ``None`` as the default. Instead it will call
+        ``asa("")``, which may raise exceptions.
+
+        Examples::
+
+            # Returns the string if set, or "" if not set
+            x = site.vars.get_value("analytics_id")
+            # Returns the string if set, or "Ignore" if not set
+            x = site.vars.get_value("abort_retry_ignore", "Ignore")
+            # Returns the number of pages as an integer. Raises ValueError if the
+            # value is not a number.
+            num_items = site.vars.get_value("paginate_by", default=10, asa=int)
+            # Booleans may store "false", "0", or "" as false. Anything else is true.
+            is_good = site.vars.get_value("is_good", default=False, asa=bool)
+            # Parses the value as JSON and returns the result. If you pass default as a
+            # string, it will be passed to the asa function for transformation. Here if
+            # value is not set, it will return an empty dict.
+            data = site.vars.get_value("json_data", "{}", json.loads)
+            # If the value is not valid JSON ("" is not!), it will raise JSONDecodeError.
+            # This raises JSONDecodeError if not set.
+            data = site.vars.get_value("json_data", json.loads)
+            # If you pass a non-string as default, it will check that the decoded value
+            # is of the same type, or raise a ValueError.
+            SiteVar.objects.create(
+                site=site, name="json_data", value='{"key": "value"}'
+            )
+            # Raises ValueError. Expected list, but value decoded to dict.
+            site.vars.get_value("json_data", [], json.loads)
+
         """
         conf = apps.get_app_config("sitevars")
-        site_id: int = 0
-        # If using the PlaceholderSite model, use the hardcoded ID
-        if config.site_model == "sitevars.PlaceholderSite":
-            site_id = 1
-
-        # Otherwise, determine the site ID from the queryset
-        if not site_id:
-            for lookup in self.query.where.children:
-                if not isinstance(lookup, models.fields.related_lookups.RelatedExact):
-                    continue
-                if lookup.lhs.target.name == "site":
-                    site_id = lookup.rhs
-                    break
-
-        if not site_id:
-            raise ValueError("get_value requires a queryset filtered by site")
+        if not callable(asa):
+            raise TypeError(f"asa must be a callable, got {type(asa).__name__} instead")
+        if not isinstance(name, str):
+            raise TypeError(f"name must be a string, got {type(name).__name__} instead")
+        if (
+            asa is str
+            and default is not None  # None is always a valid default value
+            and not issubclass(type(default), str)
+            and not issubclass(str, type(default))
+        ):
+            raise TypeError(
+                f"default is type {type(default).__name__}, "
+                "which is not a type compatible with str. Pass an asa function to convert "
+                "a string value to the correct type."
+            )
 
         # Check whether we are operating inside a transaction
         in_transaction = not transaction.get_connection().get_autocommit()
 
+        # First we get the value, which should be a str, then we convert if requested
+        val = None
+
+        # If we're using cache, we need to get the site id to calculate the cache key,
+        # then retrieve the value.
         # It's not safe to use the cache in a transaction, as it can get out of sync
         if conf.use_cache and not in_transaction:
+            site_id: int = 0
+            # If using the PlaceholderSite model, use the hardcoded ID
+            if config.site_model == "sitevars.PlaceholderSite":
+                site_id = 1
+
+            # Otherwise, determine the site ID from the queryset
+            if not site_id:
+                for lookup in self.query.where.children:
+                    if not isinstance(
+                        lookup, models.fields.related_lookups.RelatedExact
+                    ):
+                        continue
+                    if lookup.lhs.target.name == "site":
+                        site_id = lookup.rhs
+                        break
+
+            if not site_id:
+                raise ValueError("get_value requires a queryset filtered by site")
+
             # Construct the cache key and retrieve the cached value
             key = f"sitevars:{site_id}"
             allvars = cache.get(key, None)
@@ -60,15 +105,46 @@ class SiteVarQueryset(models.QuerySet):
                 allvars = {var.name: var.value for var in self.all()}
                 cache.set(key, allvars)
             val = allvars.get(name, default)
-            return asa(val) if val is not None else val
 
-        # Not using cache, just query the DB
-        try:
-            return asa(self.get(name=name).value)
-        except self.model.DoesNotExist:
-            # This allows None as a default, without crashing on e.g. `int(None)`
-            return asa(default) if default is not None else default
-        # Note explicitly NOT catching MultipleObjectsReturned, that's still an error
+        if val is None:  # Cache miss or not using cache
+            try:
+                val = self.get(name=name).value
+            # Note explicitly NOT catching MultipleObjectsReturned, that's still an error
+            except self.model.DoesNotExist:
+                val = default
+
+        # If the value is not a str, it's the default they passed. Return it as-is.
+        if not isinstance(val, str):
+            return val
+
+        # Now we have a string value. Convert it if requested.
+        # If the conversion function is str, nothing to do. (But if default is not a
+        # str, we need to check for type mismatches below.)
+        if asa is str and type(default) is str:
+            return val
+
+        # Special case for booleans because bool("false") evaluates to true
+        if asa is bool:
+            return val.lower() not in ["", "false", "0"]
+
+        rval = asa(val)
+        # Sanity check. If they passed a default and asa, the value returned by asa
+        # should be a compatible type with the default (i.e. same or subclass). If not,
+        # raise a ValueError.
+        # Special exception for None, which is a valid default value for any type.
+        if (
+            default is not None
+            and type(default) is not str
+            and not issubclass(type(rval), type(default))
+            and not issubclass(type(default), type(rval))
+        ):
+            # If the conversion function returned a type incompatible with the default,
+            # raise a ValueError
+            raise ValueError(
+                f"Type mismatch: default has type {type(default).__name__} "
+                f"but asa function {asa} returned type {type(rval).__name__}"
+            )
+        return rval
 
     def clear_cache(self, site_id: T.Optional[int] = None):
         """

@@ -15,6 +15,97 @@ pip install django-sitevars
 
 Then, configure and use it according to the usage scenarios below.
 
+## General Usage
+
+### In Templates
+
+In templates, load the `sitevars` library to use the included template tag.
+
+```html
+{% load sitevars %} Hello, {% sitevar "name" default="world" %}!
+```
+
+Or, if you are using the `sitevars.contet_processors.inject_sitevars` context processor,
+the variable will already be in the template context, adn the tag is not needed.
+
+```html
+Hello, {{ name|default:"world" }}!
+```
+
+NOTE: It's strongly advised to use the `django.template.context_processors.request`
+context processor to ensure `sitevars` can look up the current site.
+
+### In Python
+
+In your views, you can access site variables via the `vars` accessor on the site object.
+To get the current site object regardless of what SITE_MODEL you're using, the sitevars
+AppConfig provides a `get_site_for_request` method (even if you don't have a site model,
+sitevars provides one). See the example below.
+
+Use the `site.vars.get_value` method to retrieve the value by name. The signature for
+`get_value` is:
+
+```python
+def get_value(self, name: str, default: object = "", asa: Callable = str):
+```
+
+Although the values are always stored as strings in the database, you can also ask
+`get_value` to transform the string value returned from the database by passing a
+function in the `asa` argument. Here are some examples for various types:
+
+- **Integer:** Use `num = site.vars.get_value("name", default=10, asa=int)`. Remember an
+  empty value cannot be converted to an `int` so you should always pass a default. Will
+  raise `ValueError` if the string cannot be converted to an `int`.
+- **Float:** `num = site.vars.get_value("name", default=1.0, asa=float)`. As with
+  integers, it is wise to pass a default, and it will raise `ValueError` if the
+  conversion fails.
+- **Boolean:** `tf = site.vars.get_value("name", asa=bool)`. We special-case Boolean
+  values, so if the database value is "", "0", or "false" (case insensitive), or not
+  set, it returns `False`. Any other stored value returns `True`. If you want `True` for
+  unset values you can pass `default=True`.
+- **JSON:** For complex types, store serialized JSON and use
+  `num = site.vars.get_value("name", default={}, asa=json.loads)`. If the field does not
+  contain a valid JSON string this will raise JSONDecodeError. If the type returned from
+  `loads` is not the same type as your default, this will raise `TypeError`. If you
+  don't provide a default and the value is not set, this will also raise
+  `JSONDecodeError` (because it will end up calling `loads("")`).
+
+```python
+import json
+from django.apps import apps
+from django.contrib.sites.shortcuts import get_current_site
+
+sitevars = apps.get_app_config("sitevars")
+
+
+def my_view(request):
+    site = sitevars.get_site_for_request(request)
+    # Returns the string if set, or "" if not set
+    x = site.vars.get_value("analytics_id")
+    # Returns the string if set, or "Ignore" if not set
+    x = site.vars.get_value("abort_retry_ignore", "Ignore")
+    # Returns the number of pages as an integer. Raises ValueError if the
+    # value is not a number.
+    num_items = site.vars.get_value("paginate_by", default=10, asa=int)
+    # Booleans may store "false", "0", or "" as false. Anything else is true.
+    is_good = site.vars.get_value("is_good", default=False, asa=bool)
+    # Parses the value as JSON and returns the result. If you pass default as a
+    # string, it will be passed to the asa function for transformation. Here if
+    # value is not set, it will return an empty dict.
+    data = site.vars.get_value("json_data", "{}", json.loads)
+    # If the value is not valid JSON ("" is not!), it will raise JSONDecodeError.
+    # This raises JSONDecodeError if not set.
+    data = site.vars.get_value("json_data", json.loads)
+    # If you pass a non-string as default, it will check that the decoded value
+    # is of the same type, or raise a ValueError.
+    SiteVar.objects.create(
+        site=site, name="json_data", value='{"key": "value"}'
+    )
+    # Raises ValueError. Expected list, but value decoded to dict.
+    data = site.vars.get_value("json_data", [], json.loads)
+    ...
+```
+
 ## Using with `django.contrib.sites`
 
 If you have `django.contrib.sites` in your installed apps, SiteVars will be associated
@@ -49,24 +140,6 @@ TEMPLATES=[
 ]
 # highly recommended to add the current site middleware
 # MIDDLEWARE.append("django.contrib.sites.middleware.CurrentSiteMiddleware")
-```
-
-In your views, you can access site variables via the accessor on the site object. Use
-the `get_value` method to retrieve the value by name. You can also ask `get_value` to
-transform the string value returned from the database by passing a function in the `asa`
-argument.
-
-```python
-import json
-from django.contrib.sites.shortcuts import get_current_site
-
-def my_view(request):
-  site = get_current_site(request)
-  name = site.vars.get_value("name", default="world")
-  # Note that default must be a string, because it will be passed to your asa function!
-  number = site.vars.get_value("number", default="0", asa=int)
-  options_dict = site.vars.get_value("options", default="{}", asa=json.loads)
-  ...
 ```
 
 ## Using with an alternate Site model
@@ -122,7 +195,7 @@ For a home-grown custom site model, something like this should work:
 SITE_MODEL = "my_sites_app.Site"
 CURRENT_SITE_FUNCTION = "my_sites_app.utils.site_for_request"
 
-# In my_sites_app.utils.py
+# In my_sites_app/utils.py
 def site_for_request(request):
     # Your own matching logic here
     return Site.objects.matching_domain(request.get_host())
@@ -136,23 +209,8 @@ creates a placeholder site object for its foreign key, but you don't need to kno
 it. Just call `SiteVar.objects.get_value("name")` and `sitevars` will do the right
 thing.
 
-## Using in templates
-
-In templates, load the `sitevars` library to use the included template tag.
-
-```html
-{% load sitevars %} Hello, {% sitevar "name" default="world" %}!
-```
-
-Or, if you are using the `sitevars.contet_processors.inject_sitevars` context processor,
-the variable will already be in the template context.
-
-```html
-{% load sitevars %} Hello, {{ name|default:"world" }}!
-```
-
-NOTE: It's strongly advised to use the `django.template.context_processors.request`
-context processor to ensure `sitevars` can look up the current site.
+However, you can also get the current site object as shown above, and that will also
+work.
 
 ## Disabling the Cache
 

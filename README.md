@@ -26,8 +26,7 @@ In templates, load the `sitevars` library to use the included template tag.
 ```
 
 Or, if you are using the `sitevars.context_processors.inject_sitevars` context processor,
-the variable will already be in the template context, adn the tag is not needed.
-
+the variable will already be in the template context, and the tag is not needed.
 ```html
 Hello, {{ name|default:"world" }}!
 ```

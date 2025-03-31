@@ -13,6 +13,8 @@
   `SitevarsConfig`. The cache was problematic to maintain and did not actually improve
   performance. In fact in some cases it could degrade performance.
 - CHANGED: Documented using swappable sites with 3rd party apps.
+- CHANGED: Added `get_mulitple_values` to efficiently retrieve values for multiple
+  SiteVars at once.
 
 ## 1.1.1
 

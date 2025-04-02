@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## 2.0.0 BREAKING CHANGES
+
+- BREAKING CHANGE: Overhauled the `get_value` method to deal with several edge cases in
+  a smarter way. Now recognizes "false" and "0" as false values when `asa=bool`
+  (previously these evaluated as True). Now accepts default values of the target type as
+  well as strings. When a default is given, checks the type against the actual return
+  value and raises an error if they are incompatible types (to eliminate a footgun).
+  Technically this is a breaking change since it will change the return values of some
+  queries, but the old values were wrong and would cause bugs.
+- BREAKING CHANGE: Removed the internal cache of vars and the `use_cache` method of
+  `SitevarsConfig`. The cache was problematic to maintain and did not actually improve
+  performance. In fact in some cases it could degrade performance.
+- CHANGED: Documented using swappable sites with 3rd party apps.
+- CHANGED: Added `get_mulitple_values` to efficiently retrieve values for multiple
+  SiteVars at once.
+
 ## 1.1.1
 
 - CHANGED: Fixed several bugs that caused failures when not using

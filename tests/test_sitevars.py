@@ -1,14 +1,14 @@
+import json
 from unittest import skipIf
-from unittest.mock import Mock, patch, ANY
+from unittest.mock import Mock
 
 from django.apps import apps
 from django.contrib.admin import site as adminsite
 from django.contrib.auth.models import User
 from django.core.checks import Warning
-from django.db import transaction
 from django.db.utils import IntegrityError
 from django.template import Context, Template
-from django.test import TestCase, TransactionTestCase, override_settings, RequestFactory
+from django.test import TestCase, override_settings, RequestFactory
 from django.urls import reverse
 
 from sitevars import checks
@@ -51,15 +51,6 @@ class AdminSmokeTest(TestCase):
 
 
 class AppConfigTest(TestCase):
-    @override_settings(SITEVARS_USE_CACHE=False)
-    def test_use_cache_false(self):
-        """Test the use_cache property when SITEVARS_USE_CACHE is False."""
-        self.assertFalse(config.use_cache)
-
-    def test_use_cache_default(self):
-        """Test the use_cache property."""
-        self.assertTrue(config.use_cache)
-
     @skipIf(
         config.site_model != "sitevars.PlaceholderSite",
         "Test only applies to PlaceholderSite model.",
@@ -126,79 +117,36 @@ class ContextProcessorTest(TestCase):
         # Create a sitevar
         SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
 
-        # Test the context processor returns the sitevar and populates the cache
-        with patch("sitevars.context_processors.cache") as mock_cache:
-            request = RequestFactory().get("/")
-            # Simulate site middleware
-            request.site = Mock()
-            request.site.id = 1
-            mock_cache.get.return_value = None
-            with self.assertNumQueries(1):
-                context = inject_sitevars(request)
-            self.assertEqual(context, {"testvar": "testvalue"})
-            mock_cache.get.assert_called_once_with("sitevars:1", None)
-            mock_cache.set.assert_called_once_with(
-                "sitevars:1", {"testvar": "testvalue"}
-            )
+        request = RequestFactory().get("/")
+        # Simulate site middleware
+        request.site = Mock()
+        request.site.id = 1
+        with self.assertNumQueries(1):
+            context = inject_sitevars(request)
+        self.assertEqual(context, {"testvar": "testvalue"})
 
     def test_context_processor_returns_dict__without_site_middleware(self):
         """Test the context processor when sites middleware not installed."""
         # Create a sitevar
         SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
 
-        # Test the context processor returns the sitevar and populates the cache
-        with patch("sitevars.context_processors.cache") as mock_cache:
-            request = RequestFactory().get("/")
-            assert not hasattr(request, "site")
-            mock_cache.get.return_value = None
+        # Test the context processor returns the sitevar
+        request = RequestFactory().get("/")
+        assert not hasattr(request, "site")
 
-            context = inject_sitevars(request)
+        context = inject_sitevars(request)
 
-            self.assertEqual(context, {"testvar": "testvalue"})
-
-    def test_cache_used(self):
-        """Test that the context processor uses the cache."""
-        # Create a sitevar
-        SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
-
-        with patch("sitevars.context_processors.cache") as mock_cache:
-            request = RequestFactory().get("/")
-            request.site = Mock()
-            request.site.id = 1
-            mock_cache.get.return_value = {"testvar": "testvalue"}
-            with self.assertNumQueries(0):
-                context = inject_sitevars(request)
-            self.assertEqual(context, {"testvar": "testvalue"})
-            mock_cache.get.assert_called_once_with("sitevars:1", None)
-            mock_cache.set.assert_not_called()
-
-    @override_settings(SITEVARS_USE_CACHE=False)
-    def test_context_processor_caching_off(self):
-        """Test the context processor with caching off."""
-        conf = apps.get_app_config("sitevars")
-        self.assertFalse(conf.use_cache)  # Because SITEVARS_USE_CACHE=False
-
-        # Create a sitevar
-        SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
-
-        with patch("sitevars.context_processors.cache") as mock_cache:
-            request = RequestFactory().get("/")
-            request.site = Mock()
-            request.site.id = 1
-            context = inject_sitevars(request)
-            self.assertEqual(context, {"testvar": "testvalue"})
-            mock_cache.get.assert_not_called()
-            mock_cache.set.assert_not_called()
         self.assertEqual(context, {"testvar": "testvalue"})
 
 
-class SiteVarModelTest(TransactionTestCase):
-    # Note: we use TransactionTestCase to manually manage transactions where TestCase
-    # would rollback the transaction before the cache is cleared.
+class SiteVarModelTest(TestCase):
     def test_sitevar_str(self):
         """Test the string representation of a sitevar."""
         sitevar = SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
-        self.assertEqual(str(sitevar), "testvar=testvalue (example.com)")
+        if config.site_model == "sitevars.PlaceholderSite":
+            self.assertEqual(str(sitevar), "testvar=testvalue")
+        elif hasattr(sitevar.site, "domain"):
+            self.assertEqual(str(sitevar), "testvar=testvalue (example.com)")
 
     def test_sitevar_unique_together(self):
         """Test that sitevar names are unique per site."""
@@ -208,13 +156,12 @@ class SiteVarModelTest(TransactionTestCase):
 
     @skipIf(
         config.site_model.lower() == "sitevars.placeholdersite",
-        "Test does not apply to when using PlaceholderSite model.",
+        "Test does not apply when using PlaceholderSite model.",
     )
     def test_sitevar_unique_together_different_sites(self):
         """Test that sitevar names are not unique across different sites."""
-        Site = apps.get_model(*config.site_model.split("."))
-        site1 = Site.objects.get(pk=1)
-        site2 = Site.objects.create(domain="example2.com", name="example2.com")
+        site1 = config.Site.objects.get(pk=1)
+        site2 = config.Site.objects.create(domain="example2.com", name="example2.com")
         SiteVar.objects.create(site=site1, name="testvar", value="testvalue")
         SiteVar.objects.create(site=site2, name="testvar", value="othervalue")
         self.assertEqual(
@@ -223,15 +170,6 @@ class SiteVarModelTest(TransactionTestCase):
         self.assertEqual(
             SiteVar.objects.filter(site=site1).get_value("testvar"), "testvalue"
         )
-
-    @skipIf(
-        config.site_model.lower() == "sitevars.placeholdersite",
-        "Test does not apply to when using PlaceholderSite model.",
-    )
-    def test_get_value_requires_queryset_filtered_by_site(self):
-        """Test that get_value raises an error when the queryset is not filtered by site."""
-        with self.assertRaises(ValueError):
-            SiteVar.objects.get_value("testvar")
 
     @skipIf(
         config.site_model.lower() != "sitevars.placeholdersite",
@@ -243,106 +181,258 @@ class SiteVarModelTest(TransactionTestCase):
         with self.assertNumQueries(1):
             self.assertEqual(SiteVar.objects.get_value("testvar"), "testvalue")
 
-    @override_settings(SITEVARS_USE_CACHE=False)
-    def test_sitevar_get_value_no_cache(self):
-        """Test that get_value honors the use_cache app setting."""
-        Site = apps.get_model(*config.site_model.split("."))
-        site = Site.objects.get(pk=1)
-        with patch("sitevars.models.cache") as mock_cache:
-            mock_cache.get.return_value = None
-            SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
-            self.assertEqual(site.vars.get_value("testvar"), "testvalue")
-            mock_cache.get.assert_not_called()
-            mock_cache.set.assert_not_called()
-            with self.assertNumQueries(1):
-                self.assertEqual(
-                    site.vars.get_value("nonexistent", None, asa=int),
-                    None,
-                )
+    def test_get_value_asa(self):
+        """Test that get_value works with the asa argument."""
+        site = config.Site.objects.get(pk=1)
 
-    def test_sitevar_get_value_cache_hit(self):
-        """Test that get_value uses the cache."""
-        Site = apps.get_model(*config.site_model.split("."))
-        site = Site.objects.get(pk=1)
-        with patch("sitevars.models.cache") as mock_cache:
-            mock_cache.get.return_value = {"testvar": "testvalue"}
-            with self.assertNumQueries(0):
-                self.assertEqual(site.vars.get_value("testvar"), "testvalue")
-            mock_cache.get.assert_called_once_with("sitevars:1", None)
-            mock_cache.set.assert_not_called()
+        # Missing values return ""
+        self.assertEqual(site.vars.get_value("testvar"), "")
 
-    def test_get_value_ignores_cache_inside_transaction(self):
-        """Test that the cache is ignored inside a transaction.
+        # Defaults of type str should be converted with asa
+        self.assertEqual(site.vars.get_value("testvar", default="1", asa=int), 1)
+        self.assertEqual(site.vars.get_value("testvar", default="1.0", asa=float), 1.0)
+        self.assertEqual(site.vars.get_value("testvar", default="True", asa=bool), True)
+        self.assertEqual(
+            site.vars.get_value("testvar", default="False", asa=bool), False
+        )
+        # Default value should be returned unchanged if not a str
+        self.assertEqual(site.vars.get_value("testvar", default=1, asa=int), 1)
+        self.assertEqual(site.vars.get_value("testvar", default=1.0, asa=float), 1.0)
+        self.assertEqual(site.vars.get_value("testvar", default=True, asa=bool), True)
+        self.assertEqual(site.vars.get_value("testvar", default=False, asa=bool), False)
+        # If the default is None, it should be returned as-is, with or without asa
+        self.assertEqual(site.vars.get_value("testvar", default=None, asa=int), None)
+        self.assertEqual(site.vars.get_value("testvar", default=None, asa=float), None)
+        self.assertEqual(site.vars.get_value("testvar", default=None, asa=bool), None)
+        self.assertEqual(site.vars.get_value("testvar", default=None), None)
+        # If the default is not a string, it should be returned as-is (even if it's
+        # wrong) because we have no sure way of knowing what asa would return.
+        self.assertEqual(site.vars.get_value("testvar", default=1, asa=float), 1)
 
-        Because transactions can rollback (and there is no transaction.on_rollback we
-        can use to detect that), there's a potential for the cache to get out of sync
-        if we both write (which clears the cache) and then read (which repopulates the
-        cache) inside a transaction that is then rolled back. To avoid this, we ignore
-        the cache inside a transaction. This is an edge case that is unlikely (though
-        not impossible) to occur in production use, but always happens in TestCase
-        tests (which is why we use TransactionTestCase).
+        # If a default of a non-string type is passed with no asa, raise TypeError,
+        # as this would cause a type mismatch if the value were set.
+        with self.assertRaises(TypeError):
+            site.vars.get_value("testvar", default=1)
+        with self.assertRaises(TypeError):
+            site.vars.get_value("testvar", default=1.0)
+        with self.assertRaises(TypeError):
+            site.vars.get_value("testvar", default=True)
+        with self.assertRaises(TypeError):
+            site.vars.get_value("testvar", default=False)
+        with self.assertRaises(TypeError):
+            site.vars.get_value("testvar", default={})
+
+        # If no default is provided, calls asa("") which could raise errors.
+        # Note that bool would return False, see the separate test_get_value_asa_bool
+        with self.assertRaises(ValueError):
+            site.vars.get_value("testvar", asa=int)
+        with self.assertRaises(ValueError):
+            site.vars.get_value("testvar", asa=float)
+        with self.assertRaises(json.JSONDecodeError):
+            site.vars.get_value("testvar", asa=json.loads)
+
+        # Done with defaults, test with stored values
+        SiteVar.objects.create(site_id=1, name="testvar", value="123")
+
+        # With no asa, you get a string
+        self.assertEqual(site.vars.get_value("testvar"), "123")
+        # With asa, you get the converted value
+        self.assertEqual(site.vars.get_value("testvar", asa=int), 123)
+        self.assertEqual(site.vars.get_value("testvar", asa=str), "123")
+        self.assertEqual(site.vars.get_value("testvar", asa=bool), True)
+        self.assertEqual(site.vars.get_value("testvar", asa=float), 123.0)
+        self.assertEqual(site.vars.get_value("testvar", default=None), "123")
+        # If you pass a non-callable asa, raise a TypeError
+        with self.assertRaises(TypeError):
+            site.vars.get_value("testvar", asa="not callable")
+        # If you pass a default that is not the same type as the value, raise a ValueError
+        with self.assertRaises(ValueError):
+            site.vars.get_value("testvar", asa=int, default={})
+
+    def test_get_value_asa_bool(self):
+        """Test that get_value works with the asa argument for boolean values.
+        Any value other than "false", "0", or "" is considered True.
         """
-        Site = apps.get_model(*config.site_model.split("."))
-        site = Site.objects.get(pk=1)
-        with transaction.atomic():
-            # Attempt to retrieve a sitevar. This would normally populate the cache.
-            with patch("sitevars.models.cache") as mock_cache:
-                val = site.vars.get_value("testvar", None)
-                mock_cache.get.assert_not_called()
-                mock_cache.set.assert_not_called()
-                self.assertIsNone(val)
+        site = config.Site.objects.get(pk=1)
 
-            # Cache should still be cleared on write
-            with patch("sitevars.models.transaction") as mock_xact:
-                SiteVar.objects.create(site=site, name="testvar", value="testvalue")
-                mock_xact.on_commit.assert_called_once_with(ANY)
+        self.assertEqual(site.vars.get_value("testvar"), "")
+        self.assertEqual(site.vars.get_value("testvar", asa=bool), False)
+        self.assertEqual(site.vars.get_value("testvar", default="True", asa=bool), True)
+        self.assertEqual(site.vars.get_value("testvar", default=True, asa=bool), True)
+        self.assertEqual(
+            site.vars.get_value("testvar", default="False", asa=bool), False
+        )
+        self.assertEqual(site.vars.get_value("testvar", default=False, asa=bool), False)
+        self.assertEqual(site.vars.get_value("testvar", default="0", asa=bool), False)
+        self.assertEqual(site.vars.get_value("testvar", default="1", asa=bool), True)
+        # Bizarre edge case because Python's bool is a subclass of int, and therefore
+        # True == 1, False == 0, and 10 + True == 11. ¯\_(ツ)_/¯
+        self.assertEqual(site.vars.get_value("testvar", default=0, asa=bool), False)
+        self.assertEqual(site.vars.get_value("testvar", default=1, asa=bool), True)
+        self.assertEqual(site.vars.get_value("testvar", default=False, asa=int), 0)
+        self.assertEqual(site.vars.get_value("testvar", default=True, asa=int), 1)
 
-            # The cache should not be used here
-            with patch("sitevars.models.cache") as mock_cache:
-                with self.assertNumQueries(1):
-                    self.assertEqual(site.vars.get_value("testvar"), "testvalue")
-                mock_cache.get.assert_not_called()
-                mock_cache.set.assert_not_called()
+        var = SiteVar.objects.create(site_id=1, name="testvar", value="true")
+        self.assertEqual(site.vars.get_value("testvar", asa=bool), True)
 
-    def test_sitevar_clear_cache(self):
-        """Test that the cache is cleared correctly."""
-        SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
-        with patch("sitevars.models.cache") as mock_cache:
-            SiteVar.objects.clear_cache(site_id=1)
-            mock_cache.delete.assert_called_once_with("sitevars:1")
+        var.value = "False"
+        var.save()
+        self.assertEqual(site.vars.get_value("testvar", asa=bool), False)
 
-    def test_sitevar_clear_cache_all_sites(self):
-        """Test that the cache is cleared for all sites."""
-        Site = apps.get_model(*config.site_model.split("."))
-        site1 = Site.objects.get(pk=1)
-        site2 = Site.objects.create(domain="example2.com", name="example2.com")
-        SiteVar.objects.create(site=site1, name="testvar", value="testvalue")
-        SiteVar.objects.create(site=site2, name="testvar", value="othervalue")
-        with patch("sitevars.models.cache") as mock_cache:
-            SiteVar.objects.clear_cache()
-            mock_cache.delete.assert_any_call("sitevars:1")
-            mock_cache.delete.assert_any_call("sitevars:2")
+        var.value = ""
+        var.save()
+        self.assertEqual(site.vars.get_value("testvar", asa=bool), False)
 
-    def test_delete_clears_cache(self):
-        """Test that the cache is cleared on commit when a sitevar is deleted."""
-        sitevar = SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
-        with patch("sitevars.models.transaction") as mock_xact:
-            sitevar.delete()
-            mock_xact.on_commit.assert_called()
+        var.value = "0"
+        var.save()
+        self.assertEqual(site.vars.get_value("testvar", asa=bool), False)
 
-    def test_save_clears_cache(self):
-        """Test that the cache is cleared on commit when a sitevar is saved."""
-        sitevar = SiteVar.objects.create(site_id=1, name="testvar", value="testvalue")
-        with patch("sitevars.models.transaction") as mock_xact:
-            sitevar.save()
-            mock_xact.on_commit.assert_called()
+        var.value = "1"
+        var.save()
+        self.assertEqual(site.vars.get_value("testvar", asa=bool), True)
+
+        # If default is passed as a string, should still return bool
+        var.delete()
+        self.assertEqual(site.vars.get_value("testvar", default="True", asa=bool), True)
+        self.assertEqual(
+            site.vars.get_value("testvar", default="False", asa=bool), False
+        )
+
+    def test_get_value_asa_json(self):
+        """Test that get_value works with the asa argument for JSON values."""
+        site = config.Site.objects.get(pk=1)
+        # Because defaults are converted, missing JSON values will raise an error
+        with self.assertRaises(json.JSONDecodeError):
+            site.vars.get_value("testvar", asa=json.loads)
+        self.assertEqual(
+            site.vars.get_value("testvar", default=r'{"key": "val"}', asa=json.loads),
+            {"key": "val"},
+        )
+        self.assertEqual(
+            site.vars.get_value("testvar", default={"key": "val"}, asa=json.loads),
+            {"key": "val"},
+        )
+        self.assertEqual(
+            site.vars.get_value(
+                "testvar", default=r'["item1", "item2"]', asa=json.loads
+            ),
+            ["item1", "item2"],
+        )
+        self.assertEqual(
+            site.vars.get_value("testvar", default=["item1", "item2"], asa=json.loads),
+            ["item1", "item2"],
+        )
+
+        # Done with defaults, test with stored values
+        var = SiteVar.objects.create(
+            site_id=1, name="testvar", value=r'{"key": "value"}'
+        )
+        self.assertEqual(
+            site.vars.get_value("testvar", asa=json.loads), {"key": "value"}
+        )
+        self.assertEqual(site.vars.get_value("testvar"), '{"key": "value"}')
+        # If the type of the value does not match the type of the default,
+        # raise TypeError
+        with self.assertRaises(TypeError):
+            site.vars.get_value("testvar", default=[])
+
+        # Should also work with JSON arrays
+        var.value = '["value1", "value2"]'
+        var.save()
+        self.assertEqual(
+            site.vars.get_value("testvar", asa=json.loads), ["value1", "value2"]
+        )
+        self.assertEqual(site.vars.get_value("testvar"), '["value1", "value2"]')
+
+
+class GetMultipleValuesTest(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.site_id = 1
+        SiteVar.objects.create(site_id=cls.site_id, name="var1", value="value1")
+        SiteVar.objects.create(site_id=cls.site_id, name="var2", value="value2")
+        SiteVar.objects.create(site_id=cls.site_id, name="var3", value="value3")
+
+    def test_get_all_values(self):
+        """Test that all SiteVars are returned when no names are provided."""
+        result = SiteVar.objects.filter(site_id=self.site_id).get_multiple_values()
+        expected = {"var1": "value1", "var2": "value2", "var3": "value3"}
+        self.assertEqual(result, expected)
+
+    def test_get_specific_values(self):
+        """Test that only specified SiteVars are returned."""
+        result = SiteVar.objects.filter(site_id=self.site_id).get_multiple_values(
+            ["var1", "var3"]
+        )
+        expected = {"var1": "value1", "var3": "value3"}
+        self.assertEqual(result, expected)
+
+    def test_get_values_with_defaults(self):
+        """Test that missing SiteVars are filled with default values."""
+        result = SiteVar.objects.filter(site_id=self.site_id).get_multiple_values(
+            ["var1", "var4"],
+            defaults={"var4": "default_value4"},
+        )
+        expected = {"var1": "value1", "var4": "default_value4"}
+        self.assertEqual(result, expected)
+
+    def test_get_values_with_callable_asa(self):
+        """Test that values are transformed using a callable asa."""
+        result = SiteVar.objects.filter(site_id=self.site_id).get_multiple_values(
+            ["var1", "var2"],
+            asa=str.upper,
+        )
+        expected = {"var1": "VALUE1", "var2": "VALUE2"}
+        self.assertEqual(result, expected)
+
+    def test_get_values_with_mapping_asa(self):
+        """Test that values are transformed using a mapping asa."""
+        result = SiteVar.objects.filter(site_id=self.site_id).get_multiple_values(
+            ["var1", "var2", "var3"],
+            asa={"var1": str.upper, "var2": lambda x: x[::-1]},
+        )
+        expected = {"var1": "VALUE1", "var2": "2eulav", "var3": "value3"}
+        self.assertEqual(result, expected)
+
+    def test_get_values_with_defaults_and_asa_callable(self):
+        """Test that missing SiteVars are filled with default values and transformed."""
+        result = SiteVar.objects.filter(site_id=self.site_id).get_multiple_values(
+            ["var1", "var4"],
+            defaults={"var4": "default_value4"},
+            asa=str.upper,
+        )
+        expected = {"var1": "VALUE1", "var4": "DEFAULT_VALUE4"}
+        self.assertEqual(result, expected)
+
+    def test_get_values_with_defaults_and_asa_mapping(self):
+        """Test that missing SiteVars are filled with default values and transformed."""
+        result = SiteVar.objects.filter(site_id=self.site_id).get_multiple_values(
+            ["var1", "var4"],
+            defaults={"var4": "default_value4"},
+            asa={"var1": str.upper, "var4": lambda x: x[::-1]},
+        )
+        expected = {"var1": "VALUE1", "var4": "4eulav_tluafed"}
+        self.assertEqual(result, expected)
+
+    def test_invalid_defaults_argument(self):
+        """Test that a TypeError is raised for invalid defaults argument."""
+        with self.assertRaises(TypeError):
+            SiteVar.objects.filter(site_id=self.site_id).get_multiple_values(
+                ["var1"], defaults="not_a_mapping"
+            )
+
+    def test_invalid_asa_argument(self):
+        """Test that a TypeError is raised for invalid asa argument."""
+        with self.assertRaises(TypeError):
+            SiteVar.objects.filter(site_id=self.site_id).get_multiple_values(
+                ["var1"], asa="not_callable_or_mapping"
+            )
 
 
 class SiteVarTemplateTagTest(TestCase):
     @classmethod
     def setUpTestData(cls) -> None:
-        Site = apps.get_model(*config.site_model.split("."))
-        cls.site = Site.objects.get(pk=1)
+        cls.site = config.Site.objects.get(pk=1)
         cls.sitevar = SiteVar.objects.create(
             site=cls.site, name="testvar", value="testvalue"
         )

@@ -4,6 +4,7 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db import DEFAULT_DB_ALIAS, router
 from django.db.models.signals import post_migrate
+from django.utils.functional import cached_property
 from django.utils.module_loading import import_string
 
 # Import the checks module to register system checks
@@ -41,11 +42,10 @@ class SitevarsConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "sitevars"
 
-    @property
-    def use_cache(self):
-        return getattr(settings, "SITEVARS_USE_CACHE", True)
+    def ready(self):
+        post_migrate.connect(create_default_site, sender=self)
 
-    @property
+    @cached_property
     def site_model(self):
         """
         Return the name of the Site model to use for foreign keys.
@@ -57,45 +57,52 @@ class SitevarsConfig(AppConfig):
             name = "sitevars.PlaceholderSite"
         return name
 
-    def ready(self):
-        post_migrate.connect(create_default_site, sender=self)
+    @cached_property
+    def Site(self):
+        """
+        Return the Site model class.
+        """
+        return global_apps.get_model(*self.site_model.split("."))
 
-    def get_site_id_for_request(self, request=None):
+    def get_site_for_request(self, request):
         """
-        Return the site_id for the current request.
+        Return the Site object for the current request.
         """
+        # Check for cached site object on the request
+        if hasattr(request, "site"):
+            return request.site
+        elif hasattr(request, "_sitevars_site"):
+            return request._sitevars_site
+        elif hasattr(request, "_sitevars_site_id"):
+            request._sitevars_site = self.Site.objects.get(pk=request._sitevars_site_id)
+            return request._sitevars_site
+
         # Shortcut if we're using our PlaceholderSite model
         if self.site_model == "sitevars.PlaceholderSite":
-            return 1
-
-        # To save queries, cache site_id on the request object
-        if request and hasattr(request, "_sitevars_site_id"):
-            return request._sitevars_site_id
-
-        # Use the site middleware if available
-        if request and hasattr(request, "site") and hasattr(request.site, "id"):
-            request._sitevars_site_id = request.site.id
-            return request.site.id
+            request._sitevars_site = self.Site.objects.get(pk=1)
+            request._sitevars_site_id = 1
+            return request._sitevars_site
 
         # If a function is configured, use that to get the site_id
         if hasattr(settings, "CURRENT_SITE_FUNCTION"):
             func = import_string(settings.CURRENT_SITE_FUNCTION)
-            site_id = func(request).id
-            request._sitevars_site_id = site_id
-            return site_id
+            request._sitevars_site = func(request)
+            request._sitevars_site_id = request._sitevars_site.id
+            return request._sitevars_site
 
-        Site = global_apps.get_model(*self.site_model.split("."))
         # If a method is configured, use that to get the site_id
         if hasattr(settings, "CURRENT_SITE_METHOD"):
-            site_id = getattr(Site, settings.CURRENT_SITE_METHOD)(request).id
-            request._sitevars_site_id = site_id
-            return site_id
+            request._sitevars_site = getattr(self.Site, settings.CURRENT_SITE_METHOD)(
+                request
+            )
+            request._sitevars_site_id = request._sitevars_site.id
+            return request._sitevars_site
 
         # Fallback to the sites framework's get_current() method
-        if hasattr(Site.objects, "get_current"):
-            site_id = Site.objects.get_current(request).id
-            request._sitevars_site_id = site_id
-            return site_id
+        if hasattr(self.Site.objects, "get_current"):
+            request._sitevars_site = self.Site.objects.get_current(request)
+            request._sitevars_site_id = request._sitevars_site.id
+            return request._sitevars_site
 
         # exhausted all possibilities
         host = request.get_host() if request else "Unknown domain"
@@ -109,3 +116,18 @@ class SitevarsConfig(AppConfig):
             request,
             host,
         )
+
+    def get_site_id_for_request(self, request):
+        """
+        Return the site_id for the current request.
+        """
+        # Shortcut if we're using our PlaceholderSite model
+        if self.site_model == "sitevars.PlaceholderSite":
+            return 1
+
+        # To save queries, cache site_id on the request object
+        if hasattr(request, "_sitevars_site_id"):
+            return request._sitevars_site_id
+
+        # Get the site_id
+        return self.get_site_for_request(request).id
